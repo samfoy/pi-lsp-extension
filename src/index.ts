@@ -178,10 +178,11 @@ export default function lspExtension(pi: ExtensionAPI) {
       }
 
       const lines = statuses.map((s) => {
-        const icon = s.running ? "🟢" : "⚪";
+        const icon = s.running ? "🟢" : s.lockedOut ? "🔒" : "⚪";
         const diags =
           s.diagnosticsCount > 0 ? ` (${s.diagnosticsCount} diagnostics)` : "";
-        return `${icon} ${s.languageId}: ${s.command}${diags}`;
+        const locked = s.lockedOut ? " [other session]" : "";
+        return `${icon} ${s.languageId}: ${s.command}${diags}${locked}`;
       });
 
       ctx.ui.notify(lines.join("\n"), "info");

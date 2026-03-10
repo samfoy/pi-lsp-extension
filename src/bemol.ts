@@ -10,6 +10,7 @@ import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { acquireLock, releaseLock, isLockedByOther } from "./locks.js";
 
 export interface BemolStatus {
   isBrazilWorkspace: boolean;
@@ -199,10 +200,11 @@ export class BemolManager {
 
   /**
    * Ensure bemol has been run at least once this session.
-   * If configs exist already, skips. If not, runs bemol.
+   * If configs exist already, skips. If another session is running bemol,
+   * waits briefly then checks again. If not, runs bemol.
    * Returns true if configs are available after this call.
    */
-  async ensureBemolConfig(): Promise<boolean> {
+  async ensureBemolConfig(sessionId?: string): Promise<boolean> {
     if (!this.isBrazilWorkspace) return false;
     if (this.hasConfig()) {
       this._bemolRan = true;
@@ -211,8 +213,38 @@ export class BemolManager {
     if (this._bemolRan) return this.hasConfig();
     if (!this.bemolAvailable) return false;
 
-    const result = await this.runBemol();
-    return result.success && this.hasConfig();
+    // Check if another session is already running bemol
+    if (this._workspaceRoot && isLockedByOther(this._workspaceRoot, "bemol")) {
+      // Wait up to 60s for the other session to finish
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        if (this.hasConfig()) {
+          this._bemolRan = true;
+          return true;
+        }
+        if (!isLockedByOther(this._workspaceRoot!, "bemol")) break;
+      }
+      // If config appeared, use it. Otherwise fall through to run our own.
+      if (this.hasConfig()) {
+        this._bemolRan = true;
+        return true;
+      }
+    }
+
+    // Acquire bemol lock
+    const sid = sessionId ?? `${process.pid}-${Date.now()}`;
+    if (this._workspaceRoot) {
+      acquireLock(this._workspaceRoot, "bemol", sid);
+    }
+
+    try {
+      const result = await this.runBemol();
+      return result.success && this.hasConfig();
+    } finally {
+      if (this._workspaceRoot) {
+        releaseLock(this._workspaceRoot, "bemol");
+      }
+    }
   }
 
   /**
