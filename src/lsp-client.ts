@@ -32,6 +32,8 @@ export interface LspClientOptions {
   languageId: string;
   /** Extra environment variables */
   env?: Record<string, string>;
+  /** Additional workspace folders (e.g. from bemol for Brazil multi-package workspaces) */
+  workspaceFolders?: { uri: string; name: string }[];
 }
 
 export class LspClient {
@@ -121,6 +123,13 @@ export class LspClient {
 
     // Initialize handshake
     const rootUri = pathToFileURL(this.rootDir).toString();
+    const defaultFolder = { uri: rootUri, name: this.rootDir.split("/").pop() ?? "workspace" };
+
+    // Use provided workspace folders (e.g. from bemol) or fall back to single root
+    const workspaceFolders = this.options.workspaceFolders && this.options.workspaceFolders.length > 0
+      ? this.options.workspaceFolders
+      : [defaultFolder];
+
     const initParams: InitializeParams = {
       processId: process.pid,
       capabilities: {
@@ -155,9 +164,7 @@ export class LspClient {
         },
       },
       rootUri,
-      workspaceFolders: [
-        { uri: rootUri, name: this.rootDir.split("/").pop() ?? "workspace" },
-      ],
+      workspaceFolders,
     };
 
     const result: InitializeResult = await this.connection.sendRequest(

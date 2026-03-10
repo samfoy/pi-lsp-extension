@@ -2,11 +2,13 @@
  * LSP Manager — manages multiple LSP server instances, one per language.
  *
  * Lazily starts servers on first use. Auto-detects language from file extension.
+ * Integrates with bemol for Brazil workspace support.
  */
 
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LspClient, type LspClientOptions } from "./lsp-client.js";
+import { BemolManager } from "./bemol.js";
 
 export interface ServerConfig {
   command: string;
@@ -69,6 +71,9 @@ export class LspManager {
   private serverConfigs: Map<string, ServerConfig>;
   private rootDir: string;
   private startingServers: Map<string, Promise<LspClient>> = new Map();
+  private _bemol: BemolManager;
+  private _bemolEnsured = false;
+  private _bemolEnsuring: Promise<boolean> | null = null;
 
   constructor(rootDir: string, customConfigs?: Record<string, ServerConfig>) {
     this.rootDir = resolve(rootDir);
@@ -76,6 +81,12 @@ export class LspManager {
       ...DEFAULT_SERVERS,
       ...customConfigs,
     }));
+    this._bemol = new BemolManager(this.rootDir);
+  }
+
+  /** Get the bemol manager for status/commands */
+  get bemol(): BemolManager {
+    return this._bemol;
   }
 
   /** Update or add a server configuration */
@@ -158,13 +169,41 @@ export class LspManager {
     }
   }
 
+  /**
+   * Ensure bemol config is available (one-time per session).
+   * Deduplicates concurrent calls.
+   */
+  private async ensureBemol(): Promise<void> {
+    if (this._bemolEnsured || !this._bemol.isBrazilWorkspace) return;
+    if (this._bemolEnsuring) {
+      await this._bemolEnsuring;
+      return;
+    }
+    this._bemolEnsuring = this._bemol.ensureBemolConfig();
+    try {
+      await this._bemolEnsuring;
+    } finally {
+      this._bemolEnsured = true;
+      this._bemolEnsuring = null;
+    }
+  }
+
   private async startServer(languageId: string, config: ServerConfig): Promise<LspClient> {
+    // Run bemol if in a Brazil workspace (one-time)
+    await this.ensureBemol();
+
+    // Get workspace folders from bemol if available
+    const workspaceFolders = this._bemol.isBrazilWorkspace
+      ? this._bemol.getWorkspaceFolders()
+      : undefined;
+
     const client = new LspClient({
       command: config.command,
       args: config.args,
       rootDir: this.rootDir,
       languageId,
       env: config.env,
+      workspaceFolders,
     });
 
     try {
@@ -201,8 +240,9 @@ export class LspManager {
     return statuses;
   }
 
-  /** Shut down all running servers */
+  /** Shut down all running servers and bemol watch */
   async shutdownAll(): Promise<void> {
+    this._bemol.shutdown();
     const shutdowns = [...this.clients.values()].map((client) =>
       client.shutdown().catch(() => {})
     );

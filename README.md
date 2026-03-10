@@ -69,6 +69,33 @@ Format: `/lsp-config <language-id> <command> [args...]`
 |---------|-------------|
 | `/lsp` | Show status of all configured/running LSP servers |
 | `/lsp-config` | Add or override a language server configuration |
+| `/bemol` | Run bemol, manage watch mode (Brazil workspaces only) |
+
+## Brazil Workspace Support (bemol)
+
+When working in an Amazon Brazil workspace, this extension integrates with [bemol](https://w.amazon.com/bin/view/Bemol) to make LSP servers understand Brazil's project structure.
+
+### How it works
+
+1. **Auto-detection**: On startup, the extension detects Brazil workspaces by looking for a `packageInfo` file
+2. **Auto-run**: Before starting any LSP server, if bemol configs are missing, `bemol --verbose` runs automatically
+3. **Multi-root**: Package roots from `.bemol/ws_root_folders` are passed as `workspaceFolders` to LSP servers, enabling cross-package go-to-definition and references
+4. **Watch mode**: Use `/bemol watch` to keep configs in sync as you modify the workspace
+
+### Commands
+
+```
+/bemol           # Run bemol --verbose manually
+/bemol run       # Same as above
+/bemol watch     # Start bemol --watch in background
+/bemol stop      # Stop background watch
+/bemol status    # Show bemol status and detected package roots
+```
+
+### Requirements
+
+- `bemol` on PATH (install with `toolbox install bemol`)
+- A Brazil workspace with a `packageInfo` file
 
 ## How it works
 
@@ -85,6 +112,7 @@ src/
 ├── lsp-client.ts     # JSON-RPC client over stdio (wraps vscode-jsonrpc)
 ├── lsp-manager.ts    # Manages LSP server instances per language
 ├── file-sync.ts      # Tracks open files, sends didOpen/didChange notifications
+├── bemol.ts          # Brazil workspace detection, bemol execution, watch mode
 └── tools/
     ├── diagnostics.ts
     ├── hover.ts
