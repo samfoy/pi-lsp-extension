@@ -1,9 +1,8 @@
 /**
- * Workspace Lock — cross-session coordination for LSP servers and bemol.
+ * Workspace Lock — cross-session coordination for bemol runs.
  *
  * Uses PID-based lockfiles in `.bemol/locks/` to prevent multiple pi sessions
- * from spawning duplicate heavy processes (LSP servers, bemol runs) in the
- * same workspace.
+ * from running bemol simultaneously in the same workspace.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync } from "node:fs";

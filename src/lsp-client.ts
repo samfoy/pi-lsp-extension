@@ -104,6 +104,11 @@ export class LspClient {
     this._isDaemonClient = true;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (!settled) { settled = true; fn(); }
+      };
+
       const socket = netConnect(socketPath, () => {
         this.socket = socket;
 
@@ -121,12 +126,12 @@ export class LspClient {
 
         this.connection.listen();
         this._initialized = true;
-        resolve();
+        settle(() => resolve());
       });
 
       socket.on("error", (err) => {
         if (!this._initialized) {
-          reject(new Error(`Failed to connect to LSP daemon: ${err.message}`));
+          settle(() => reject(new Error(`Failed to connect to LSP daemon: ${err.message}`)));
         } else {
           this._initialized = false;
         }
@@ -140,9 +145,9 @@ export class LspClient {
 
       // Timeout
       setTimeout(() => {
-        if (!this._initialized) {
+        if (!settled) {
           socket.destroy();
-          reject(new Error("Timeout connecting to LSP daemon socket"));
+          settle(() => reject(new Error("Timeout connecting to LSP daemon socket")));
         }
       }, 10_000);
     });

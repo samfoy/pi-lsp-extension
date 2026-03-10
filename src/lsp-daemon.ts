@@ -132,7 +132,6 @@ let server: Server;
 let lspProcess: ChildProcess;
 let lspParser: MessageParser;
 let lspInitialized = false;
-let serverCapabilities: unknown = null;
 /** Messages received from LSP server before initialization completes */
 const pendingServerMessages: JsonRpcMessage[] = [];
 
@@ -249,7 +248,6 @@ async function initializeLsp(): Promise<void> {
     const processMessage = (msg: JsonRpcMessage) => {
       if (msg.id === requestId && !msg.method) {
         // Got initialize response
-        serverCapabilities = (msg.result as any)?.capabilities;
         lspInitialized = true;
 
         // Send initialized notification

@@ -9,7 +9,7 @@ import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { spawn as spawnChild } from "node:child_process";
-import { LspClient, type LspClientOptions } from "./lsp-client.js";
+import { LspClient } from "./lsp-client.js";
 import { BemolManager } from "./bemol.js";
 
 export interface ServerConfig {
@@ -276,7 +276,8 @@ export class LspManager {
         }
         throw lastErr ?? new Error("Failed to connect to daemon");
       } catch (err: any) {
-        // Fall back to direct mode
+        // Fall back to direct mode — log the daemon failure
+        this._callbacks.onServerError?.(languageId, `Daemon mode failed, falling back to direct: ${err.message}`);
         this.startingServers.delete(languageId);
         // Don't throw — try direct mode below
       }

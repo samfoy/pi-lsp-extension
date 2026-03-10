@@ -24,7 +24,6 @@ import {
 
 import { LspManager, type ServerConfig, type LspManagerCallbacks } from "./lsp-manager.js";
 import { FileSync } from "./file-sync.js";
-import { BemolManager } from "./bemol.js";
 import { createDiagnosticsTool } from "./tools/diagnostics.js";
 import { createHoverTool } from "./tools/hover.js";
 import { createDefinitionTool } from "./tools/definition.js";
