@@ -26,7 +26,7 @@ After a successful `write` or `edit`, if an LSP server is already running for th
 ## Installation
 
 ```bash
-git clone https://github.com/nicobailon/pi-lsp-extension.git
+git clone https://github.com/samfoy/pi-lsp-extension.git
 cd pi-lsp-extension
 npm install
 ```
