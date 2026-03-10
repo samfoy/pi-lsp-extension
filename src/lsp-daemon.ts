@@ -21,8 +21,9 @@
 
 import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
-import { unlinkSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { unlinkSync, existsSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ── LSP Message Framing ────────────────────────────────────────────────────
 
@@ -203,7 +204,6 @@ function serverToClients(msg: JsonRpcMessage): void {
 
 async function initializeLsp(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const { pathToFileURL } = require("node:url");
     const rootUri = pathToFileURL(rootDir).toString();
 
     let workspaceFolders = [{ uri: rootUri, name: rootDir.split("/").pop() ?? "workspace" }];
@@ -362,7 +362,6 @@ function log(msg: string): void {
   const ts = new Date().toISOString();
   const logPath = socketPath.replace(/\.sock$/, ".log");
   try {
-    const { appendFileSync } = require("node:fs");
     appendFileSync(logPath, `[${ts}] ${msg}\n`);
   } catch { /* ignore */ }
 }
