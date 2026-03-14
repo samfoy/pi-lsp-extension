@@ -1,9 +1,14 @@
 {
   "name": "pi-lsp-extension",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "description": "Pi coding agent extension for LSP (Language Server Protocol) integration",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samfoy/pi-lsp-extension"
+  },
   "scripts": {
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
@@ -17,10 +22,13 @@
   "dependencies": {
     "vscode-languageserver-protocol": "^3.17.5"
   },
-  "devDependencies": {
+  "peerDependencies": {
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
-    "@sinclair/typebox": "^0.34.0",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
     "typescript": "^5.5.0"
   }
 }
