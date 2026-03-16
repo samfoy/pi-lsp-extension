@@ -81,10 +81,11 @@ Add more at runtime:
 ## How it Works
 
 1. **Lazy startup** — servers start on first tool use for a file type (or eagerly via [`.pi-lsp.json`](#project-config))
-2. **File sync** — pi's `read`/`write`/`edit` operations are automatically synced to the LSP via `didOpen`/`didChange`
-3. **Diagnostics cache** — the server pushes diagnostics asynchronously; tools read from a local cache
-4. **Auto-diagnostics** — errors are appended to write/edit results when a server is running
-5. **Shared daemons** — in supported workspaces, LSP servers run as background daemons shared across pi sessions
+2. **Tree-sitter fallback** — when no LSP server is running, tools like `lsp_diagnostics`, `lsp_hover`, `lsp_definition`, and `lsp_symbols` fall back to tree-sitter for syntax errors, signatures, and symbol extraction
+3. **File sync** — pi's `read`/`write`/`edit` operations are automatically synced to the LSP via `didOpen`/`didChange`, with LRU eviction (`didClose`) after 100 tracked files
+4. **Diagnostics cache** — the server pushes diagnostics asynchronously; tools read from a local cache
+5. **Auto-diagnostics** — errors are appended to write/edit results when a server is running
+6. **Shared daemons** — in supported workspaces, LSP servers run as background daemons shared across pi sessions
 
 ## Lombok Support (Java)
 
@@ -112,6 +113,7 @@ Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-
 ```json
 {
   "autoStart": ["java", "typescript"],
+  "lombokJar": "auto",
   "servers": {
     "python": { "command": "pylsp", "args": [] }
   }
@@ -151,6 +153,7 @@ src/
 ├── resolve-provider.ts   # LSP vs tree-sitter provider selection
 ├── shared/
 │   ├── constants.ts      # Skip dirs, file size limits
+│   ├── debug.ts          # Debug logger (PI_LSP_DEBUG=1)
 │   ├── format.ts         # Location formatting utilities
 │   ├── language-map.ts   # File extension → language ID mapping
 │   └── timing.ts         # Timing constants
@@ -178,6 +181,8 @@ src/
 
 - Position parameters are 1-indexed (line 1, column 1 = first character)
 - `lsp_rename` returns a preview — the LLM uses `edit`/`write` to apply changes
+- Use `/lsp-restart java` after changing Lombok config — jdtls needs a full restart to pick up `-javaagent` changes
+- Set `PI_LSP_DEBUG=1` to enable debug logging for troubleshooting
 - The extension adds a system prompt guideline nudging the LLM to check diagnostics after edits
 
 ## License
