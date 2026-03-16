@@ -23,6 +23,8 @@ export interface SymbolEntry {
 export class WorkspaceIndex {
   /** Map from symbol name (lowercase) to entries */
   private index: Map<string, SymbolEntry[]> = new Map();
+  /** Reverse index: file path → set of index keys that have entries for this file */
+  private fileToKeys: Map<string, Set<string>> = new Map();
   /** Set of indexed file paths (absolute) */
   private indexedFiles: Set<string> = new Set();
   /** Whether the initial build has completed */
@@ -141,6 +143,14 @@ export class WorkspaceIndex {
         this.index.set(key, [entry]);
       }
 
+      // Track in reverse index for fast removal
+      let keys = this.fileToKeys.get(filePath);
+      if (!keys) {
+        keys = new Set();
+        this.fileToKeys.set(filePath, keys);
+      }
+      keys.add(key);
+
       // Recurse into children
       if (sym.children) {
         this.addSymbols(filePath, sym.children);
@@ -148,19 +158,25 @@ export class WorkspaceIndex {
     }
   }
 
-  /** Remove all entries for a file */
+  /** Remove all entries for a file (O(keys-per-file) via reverse index) */
   removeFile(filePath: string): void {
     const absPath = resolve(filePath);
     this.indexedFiles.delete(absPath);
 
-    // Remove entries from index
-    for (const [key, entries] of this.index) {
-      const filtered = entries.filter((e) => e.file !== absPath);
-      if (filtered.length === 0) {
-        this.index.delete(key);
-      } else if (filtered.length !== entries.length) {
-        this.index.set(key, filtered);
+    // Use reverse index for targeted removal
+    const keys = this.fileToKeys.get(absPath);
+    if (keys) {
+      for (const key of keys) {
+        const entries = this.index.get(key);
+        if (!entries) continue;
+        const filtered = entries.filter((e) => e.file !== absPath);
+        if (filtered.length === 0) {
+          this.index.delete(key);
+        } else {
+          this.index.set(key, filtered);
+        }
       }
+      this.fileToKeys.delete(absPath);
     }
   }
 

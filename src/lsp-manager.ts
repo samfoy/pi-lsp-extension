@@ -7,7 +7,7 @@
 
 import { resolve, join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { spawn as spawnChild } from "node:child_process";
 import { LspClient } from "./lsp-client.js";
 import { BemolManager } from "./bemol.js";
@@ -147,16 +147,10 @@ export class LspManager {
     const lombokJar = this.findLombokJar();
     if (!lombokJar) return undefined;
 
-    const vmargs = `-javaagent:${lombokJar}`;
+    // jdtls expects flat dotted keys in settings, not nested objects
     return {
       settings: {
-        java: {
-          jdt: {
-            ls: {
-              vmargs,
-            },
-          },
-        },
+        "java.jdt.ls.vmargs": `-javaagent:${lombokJar}`,
       },
     };
   }
@@ -524,5 +518,54 @@ export class LspManager {
     await Promise.all(shutdowns);
     this.clients.clear();
     this.startingServers.clear();
+  }
+
+  /**
+   * Restart a specific language server. Shuts down the existing client
+   * (and kills the daemon if shared), then starts a fresh server.
+   * Returns once the new server is initialized, or throws on failure.
+   */
+  async restartServer(languageId: string): Promise<void> {
+    // Shut down existing client
+    const existing = this.clients.get(languageId);
+    if (existing) {
+      await existing.shutdown().catch(() => {});
+      this.clients.delete(languageId);
+    }
+
+    // Kill the daemon if one is running (so we get a fresh server with new config)
+    this.killDaemon(languageId);
+
+    // Wait for pending starts to clear
+    const pending = this.startingServers.get(languageId);
+    if (pending) {
+      await pending.catch(() => {});
+      this.startingServers.delete(languageId);
+    }
+
+    // Start fresh
+    const config = this.serverConfigs.get(languageId);
+    if (!config) throw new Error(`No server configured for ${languageId}`);
+
+    await this.startServer(languageId, config);
+  }
+
+  /** Kill a running daemon for a language (if any) */
+  private killDaemon(languageId: string): void {
+    const wsRoot = this._bemol.workspaceRoot;
+    if (!wsRoot) return;
+    const pidPath = join(wsRoot, ".bemol", "sockets", `lsp-${languageId}.pid`);
+    try {
+      if (!existsSync(pidPath)) return;
+      const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+      if (isNaN(pid)) return;
+      process.kill(pid, "SIGTERM");
+      // Clean up socket and pid files
+      const socketPath = join(wsRoot, ".bemol", "sockets", `lsp-${languageId}.sock`);
+      try { unlinkSync(socketPath); } catch {}
+      try { unlinkSync(pidPath); } catch {}
+    } catch {
+      // Process may already be dead
+    }
   }
 }

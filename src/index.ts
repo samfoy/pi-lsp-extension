@@ -51,6 +51,7 @@ import { DIAGNOSTIC_SETTLE_DELAY_MS } from "./shared/timing.js";
  * ```json
  * {
  *   "autoStart": ["java", "typescript"],
+ *   "lombokJar": "env/Lombok-1.18.x/runtime/lib/lombok-1.18.42.jar",
  *   "servers": {
  *     "python": { "command": "pylsp", "args": [] }
  *   }
@@ -60,6 +61,8 @@ import { DIAGNOSTIC_SETTLE_DELAY_MS } from "./shared/timing.js";
 interface ProjectLspConfig {
   /** Languages to start eagerly on session_start (e.g. ["java", "typescript"]) */
   autoStart?: string[];
+  /** Path to Lombok jar (absolute or relative to project root). "auto" to auto-detect. */
+  lombokJar?: string;
   /** Custom server configs keyed by language ID */
   servers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
 }
@@ -205,10 +208,21 @@ export default function lspExtension(pi: ExtensionAPI) {
         }
       }
 
+      // Set Lombok jar path (explicit path or "auto" for auto-detection)
+      if (projectConfig.lombokJar) {
+        if (projectConfig.lombokJar !== "auto") {
+          manager.setLombokJar(projectConfig.lombokJar);
+        }
+        // "auto" is the default behavior — findLombokJar() already auto-detects.
+        // Setting it explicitly just confirms the user wants Lombok support.
+      }
+
       // Auto-start configured languages in the background
       if (projectConfig.autoStart && projectConfig.autoStart.length > 0) {
         const langs = projectConfig.autoStart;
-        ctx.ui.setStatus("lsp", ctx.ui.theme.fg("warning", `LSP: auto-starting ${langs.join(", ")}...`));
+        const lombokNote = langs.includes("java") && manager.getLombokJar()
+          ? ` (lombok: ${manager.getLombokJar()?.split("/").pop()})` : "";
+        ctx.ui.setStatus("lsp", ctx.ui.theme.fg("warning", `LSP: auto-starting ${langs.join(", ")}${lombokNote}...`));
         manager.startEagerly(langs);
       }
     }
@@ -364,6 +378,47 @@ export default function lspExtension(pi: ExtensionAPI) {
       });
 
       ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // /lsp-restart command — restart a specific language server
+  pi.registerCommand("lsp-restart", {
+    description: "Restart an LSP server: /lsp-restart <language> (e.g. java, typescript)",
+    handler: async (args, ctx) => {
+      if (!manager) {
+        ctx.ui.notify("LSP manager not initialized", "warning");
+        return;
+      }
+
+      const languageId = args?.trim().toLowerCase();
+      if (!languageId) {
+        // Show running servers and usage
+        const statuses = manager.getStatus().filter((s) => s.running);
+        if (statuses.length === 0) {
+          ctx.ui.notify("No LSP servers are running.\n\nUsage: /lsp-restart <language>", "info");
+        } else {
+          const langs = statuses.map((s) => s.languageId).join(", ");
+          ctx.ui.notify(
+            `Running servers: ${langs}\n\nUsage: /lsp-restart <language>\nExample: /lsp-restart java`,
+            "info"
+          );
+        }
+        return;
+      }
+
+      ctx.ui.setStatus("lsp", ctx.ui.theme.fg("warning", `LSP: restarting ${languageId}...`));
+      ctx.ui.notify(`Restarting ${languageId} server (kills daemon if shared)...`, "info");
+
+      try {
+        await manager.restartServer(languageId);
+        const lombokJar = languageId === "java" ? manager.getLombokJar() : null;
+        const lombokNote = lombokJar ? `\nLombok: ${lombokJar}` : "";
+        ctx.ui.notify(`${languageId} server restarted successfully.${lombokNote}`, "info");
+        ctx.ui.setStatus("lsp", ctx.ui.theme.fg("accent", `LSP: ${languageId} ready`));
+      } catch (err: any) {
+        ctx.ui.notify(`Failed to restart ${languageId}: ${err.message}`, "error");
+        ctx.ui.setStatus("lsp", ctx.ui.theme.fg("error", `LSP: ${languageId} restart failed`));
+      }
     },
   });
 

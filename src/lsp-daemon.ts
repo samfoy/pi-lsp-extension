@@ -133,8 +133,11 @@ let server: Server;
 let lspProcess: ChildProcess;
 let lspParser: MessageParser;
 let lspInitialized = false;
-/** Messages received from LSP server before initialization completes */
-const pendingServerMessages: JsonRpcMessage[] = [];
+/** The request ID used for the initialize handshake (set by initializeLsp) */
+let initRequestId: number | null = null;
+/** Resolve/reject callbacks for the initialize promise */
+let initResolve: (() => void) | null = null;
+let initReject: ((err: Error) => void) | null = null;
 
 // ── Spawn LSP Server ───────────────────────────────────────────────────────
 
@@ -176,6 +179,39 @@ function clientToServer(clientId: number, msg: JsonRpcMessage): void {
     // Notification from client — forward as-is
     lspProcess.stdin.write(encodeMessage(msg));
   }
+}
+
+/**
+ * Route a message from the LSP server.
+ * Before initialization: looks for the init response. All other messages are dropped
+ * (no clients can be connected before init completes anyway).
+ * After initialization: routes to connected clients.
+ */
+function handleServerMessage(msg: JsonRpcMessage): void {
+  if (!lspInitialized) {
+    // During init, only the initialize response matters
+    if (initRequestId !== null && msg.id === initRequestId && !msg.method) {
+      lspInitialized = true;
+      initRequestId = null;
+
+      // Send initialized notification
+      lspProcess.stdin!.write(encodeMessage({
+        jsonrpc: "2.0",
+        method: "initialized",
+        params: {},
+      }));
+
+      log(`LSP server initialized (${languageId})`);
+      initResolve?.();
+      initResolve = null;
+      initReject = null;
+    }
+    // Other pre-init messages (e.g. window/logMessage) are ignored —
+    // no clients are connected yet anyway
+    return;
+  }
+
+  serverToClients(msg);
 }
 
 /** Route a message from the LSP server to the appropriate client(s) */
@@ -245,59 +281,26 @@ async function initializeLsp(): Promise<void> {
       ...(initializationOptions ? { initializationOptions } : {}),
     };
 
-    const requestId = nextDaemonRequestId++;
+    // Store resolve/reject so handleServerMessage can settle the promise
+    initResolve = resolve;
+    initReject = reject;
+
+    // Set the init request ID so handleServerMessage knows which response to watch for
+    initRequestId = nextDaemonRequestId++;
     const initRequest: JsonRpcMessage = {
       jsonrpc: "2.0",
-      id: requestId,
+      id: initRequestId,
       method: "initialize",
       params: initParams,
     };
-
-    // Handler for messages during init — looks for our init response
-    const processMessage = (msg: JsonRpcMessage) => {
-      if (msg.id === requestId && !msg.method) {
-        // Got initialize response
-        lspInitialized = true;
-
-        // Send initialized notification
-        lspProcess.stdin!.write(encodeMessage({
-          jsonrpc: "2.0",
-          method: "initialized",
-          params: {},
-        }));
-
-        // Drain any remaining queued messages
-        while (pendingServerMessages.length > 0) {
-          const queued = pendingServerMessages.shift()!;
-          serverToClients(queued);
-        }
-
-        log(`LSP server initialized (${languageId})`);
-        resolve();
-      }
-      // Other messages during init are queued by the parser callback in main()
-    };
-
-    // Process any messages already queued before we sent the init request
-    while (pendingServerMessages.length > 0) {
-      processMessage(pendingServerMessages.shift()!);
-      if (lspInitialized) return;
-    }
-
-    // Override parser to use our init handler for new messages
-    lspParser = new MessageParser((msg) => {
-      if (!lspInitialized) {
-        processMessage(msg);
-      } else {
-        serverToClients(msg);
-      }
-    });
 
     lspProcess.stdin!.write(encodeMessage(initRequest));
 
     // Timeout
     setTimeout(() => {
       if (!lspInitialized) {
+        initResolve = null;
+        initReject = null;
         reject(new Error("LSP initialize timed out after 5 minutes"));
       }
     }, 5 * 60_000);
@@ -445,15 +448,10 @@ async function main() {
 
   lspProcess = spawnLspServer();
 
-  // Set up stdout listener immediately to avoid losing data before init
-  lspParser = new MessageParser((msg) => {
-    if (!lspInitialized) {
-      // Queue messages during initialization — initializeLsp will handle them
-      pendingServerMessages.push(msg);
-    } else {
-      serverToClients(msg);
-    }
-  });
+  // Single parser for all server messages — routes via handleServerMessage
+  // which checks lspInitialized to decide whether to look for init response
+  // or forward to clients. No parser swapping needed.
+  lspParser = new MessageParser(handleServerMessage);
   lspProcess.stdout!.on("data", (data) => lspParser.feed(data));
 
   server = startSocketServer();

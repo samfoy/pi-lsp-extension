@@ -3,6 +3,10 @@
  *
  * Hooks into pi tool results for read/write/edit and sends
  * didOpen/didChange notifications to the appropriate LSP server.
+ *
+ * Maintains an LRU-bounded set of tracked documents. When the limit is
+ * reached, the least-recently-used document is closed via didClose to
+ * prevent unbounded memory growth in the LSP server during long sessions.
  */
 
 import { readFile } from "node:fs/promises";
@@ -13,6 +17,9 @@ import type { WorkspaceIndex } from "./tree-sitter/workspace-index.js";
 /** Callback to check if a synthetic dot operation is in progress for a URI */
 export type SyntheticDotChecker = (uri: string) => boolean;
 
+/** Max open documents tracked simultaneously. Oldest are closed via didClose. */
+const MAX_TRACKED_DOCUMENTS = 100;
+
 interface TrackedDocument {
   uri: string;
   languageId: string;
@@ -20,12 +27,16 @@ interface TrackedDocument {
 }
 
 export class FileSync {
+  /** LRU map: most-recently-used documents are at the end (Map preserves insertion order) */
   private tracked: Map<string, TrackedDocument> = new Map();
   private treeSitter: TreeSitterManager | null = null;
   private workspaceIndex: WorkspaceIndex | null = null;
   private isSyntheticDotActive: SyntheticDotChecker = () => false;
+  private maxTracked: number;
 
-  constructor(private manager: LspManager) {}
+  constructor(private manager: LspManager, maxTracked?: number) {
+    this.maxTracked = maxTracked ?? MAX_TRACKED_DOCUMENTS;
+  }
 
   /** Set the synthetic dot checker to coordinate with the completions tool */
   setSyntheticDotChecker(checker: SyntheticDotChecker): void {
@@ -39,6 +50,33 @@ export class FileSync {
   }
 
   /**
+   * Touch a URI in the LRU — moves it to the end (most-recently-used position).
+   * If the map exceeds maxTracked, evicts the oldest entry and sends didClose.
+   */
+  private touchAndEvict(uri: string): void {
+    const doc = this.tracked.get(uri);
+    if (doc) {
+      // Move to end by deleting and re-inserting
+      this.tracked.delete(uri);
+      this.tracked.set(uri, doc);
+    }
+
+    // Evict oldest if over capacity
+    while (this.tracked.size > this.maxTracked) {
+      const oldest = this.tracked.entries().next();
+      if (oldest.done) break;
+      const [evictUri, evictDoc] = oldest.value;
+      this.tracked.delete(evictUri);
+
+      // Send didClose to the appropriate LSP server
+      const client = this.manager.getRunningClient(evictDoc.languageId);
+      if (client) {
+        client.didClose(evictUri);
+      }
+    }
+  }
+
+  /**
    * Handle a file being read — sends didOpen if not yet tracked.
    * Called from tool_result handler for the `read` tool.
    */
@@ -46,8 +84,11 @@ export class FileSync {
     const absPath = this.manager.resolvePath(filePath);
     const uri = this.manager.getFileUri(absPath);
 
-    // Already tracked? Nothing to do for reads.
-    if (this.tracked.has(uri)) return;
+    // Already tracked? Just touch it for LRU freshness.
+    if (this.tracked.has(uri)) {
+      this.touchAndEvict(uri);
+      return;
+    }
 
     const languageId = this.manager.getLanguageId(absPath);
     if (!languageId) return;
@@ -61,6 +102,7 @@ export class FileSync {
       const doc: TrackedDocument = { uri, languageId, version: 1 };
       this.tracked.set(uri, doc);
       client.didOpen(uri, languageId, doc.version, content);
+      this.touchAndEvict(uri);
     } catch {
       // File might not exist or be unreadable — ignore
     }
@@ -119,6 +161,7 @@ export class FileSync {
         this.tracked.set(uri, doc);
         client.didOpen(uri, languageId, doc.version, content);
       }
+      this.touchAndEvict(uri);
     } catch {
       // File might not exist or be unreadable — ignore
     }

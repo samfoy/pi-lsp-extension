@@ -39,8 +39,9 @@ const LANGUAGE_TO_GRAMMAR: Record<string, string> = {
 
 interface CachedTree {
   tree: Tree;
-  contentHash: number;
   contentLength: number;
+  hashHead: number;
+  hashTail: number;
 }
 
 export class TreeSitterManager {
@@ -149,10 +150,13 @@ export class TreeSitterManager {
 
   /** Parse content with an explicit language ID */
   async parseWithLanguage(filePath: string, content: string, languageId: string): Promise<Tree | null> {
-    const hash = simpleHash(content);
     const length = content.length;
+    const head = djb2Hash(content, 0, Math.min(length, 4096));
+    const tail = length > 4096 ? djb2Hash(content, Math.max(0, length - 4096), length) : head;
     const cached = this.cachedTrees.get(filePath);
-    if (cached && cached.contentHash === hash && cached.contentLength === length) return cached.tree;
+    if (cached && cached.contentLength === length && cached.hashHead === head && cached.hashTail === tail) {
+      return cached.tree;
+    }
 
     const parser = await this.getParser(languageId);
     if (!parser) return null;
@@ -163,7 +167,7 @@ export class TreeSitterManager {
     // Evict old tree
     if (cached) cached.tree.delete();
 
-    this.cachedTrees.set(filePath, { tree, contentHash: hash, contentLength: length });
+    this.cachedTrees.set(filePath, { tree, contentLength: length, hashHead: head, hashTail: tail });
     return tree;
   }
 
@@ -191,11 +195,15 @@ export class TreeSitterManager {
   }
 }
 
-/** Fast non-cryptographic hash for content change detection */
-function simpleHash(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+/**
+ * Fast non-cryptographic hash (djb2) over a range of a string.
+ * Hashing head + tail separately gives collision resistance close to
+ * a full-content hash without iterating every character of large files.
+ */
+function djb2Hash(str: string, start: number, end: number): number {
+  let hash = 5381;
+  for (let i = start; i < end; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
   }
   return hash;
 }

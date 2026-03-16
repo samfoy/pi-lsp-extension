@@ -67,20 +67,13 @@ interface SymbolsDetails { count: number }
 
 function formatTreeSitterSymbol(sym: SymbolInfo, indent: number = 0): string[] {
   const prefix = "  ".repeat(indent);
-  const kindStr = TS_SYMBOL_KIND_NAMES[sym.kind] ?? `kind(${sym.kind})`;
+  const kindStr = SYMBOL_KIND_NAMES[sym.kind] ?? `kind(${sym.kind})`;
   const result = [`${prefix}${kindStr} ${sym.name} (line ${sym.line})`];
   if (sym.children) {
     for (const child of sym.children) result.push(...formatTreeSitterSymbol(child, indent + 1));
   }
   return result;
 }
-
-const TS_SYMBOL_KIND_NAMES: Record<number, string> = {
-  1: "file", 2: "module", 3: "namespace", 4: "package", 5: "class",
-  6: "method", 7: "property", 8: "field", 9: "constructor", 10: "enum",
-  11: "interface", 12: "function", 13: "variable", 14: "constant",
-  22: "struct",
-};
 
 export function createSymbolsTool(
   manager: LspManager,

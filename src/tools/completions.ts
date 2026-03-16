@@ -130,7 +130,7 @@ function shouldSyntheticTrigger(
   if (!charBefore) return null;
 
   // Accept identifier chars, closing parens/brackets (for chained calls like foo().bar)
-  if (/[\w\d_\)\]\>]/.test(charBefore)) {
+  if (/[\w\d_\)\]]/.test(charBefore)) {
     return { insertLine: line, insertChar: character };
   }
 
