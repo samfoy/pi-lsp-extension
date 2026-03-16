@@ -8,6 +8,7 @@
  * - lsp_references: find all references
  * - lsp_symbols: file/workspace symbol search
  * - lsp_rename: preview rename refactoring
+ * - lsp_completions: code completion suggestions at a position
  *
  * Usage:
  *   1. npm install in this directory
@@ -34,6 +35,7 @@ import { createReferencesTool } from "./tools/references.js";
 import { createSymbolsTool } from "./tools/symbols.js";
 import { createRenameTool } from "./tools/rename.js";
 import { createCodeOverviewTool } from "./tools/code-overview.js";
+import { createCompletionsTool } from "./tools/completions.js";
 import { relative } from "node:path";
 
 export default function lspExtension(pi: ExtensionAPI) {
@@ -158,6 +160,10 @@ export default function lspExtension(pi: ExtensionAPI) {
   pi.registerTool(createReferencesTool(managerProxy));
   pi.registerTool(createSymbolsTool(managerProxy, treeSitterProxy, workspaceIndexProxy));
   pi.registerTool(createRenameTool(managerProxy));
+  pi.registerTool(createCompletionsTool(managerProxy, {
+    getTrackedVersion: (uri) => getFileSync().getTrackedVersion(uri),
+    setTrackedVersion: (uri, v) => getFileSync().setTrackedVersion(uri, v),
+  }));
   pi.registerTool(createCodeOverviewTool(process.cwd(), treeSitterProxy, workspaceIndexProxy));
 
   // File sync: track file reads/writes/edits

@@ -100,6 +100,28 @@ export class FileSync {
     }
   }
 
+  /**
+   * Get the current tracked version for a URI, or null if not tracked.
+   * Used by tools that need to send temporary didChange notifications
+   * while keeping versions in sync.
+   */
+  getTrackedVersion(uri: string): number | null {
+    const doc = this.tracked.get(uri);
+    return doc ? doc.version : null;
+  }
+
+  /**
+   * Update the tracked version for a URI after external didChange calls.
+   * This keeps FileSync in sync when other code (e.g., completions tool)
+   * sends didChange notifications directly to the LSP client.
+   */
+  setTrackedVersion(uri: string, version: number): void {
+    const doc = this.tracked.get(uri);
+    if (doc) {
+      doc.version = version;
+    }
+  }
+
   /** Get the number of tracked documents */
   get trackedCount(): number {
     return this.tracked.size;
