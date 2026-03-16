@@ -10,6 +10,9 @@ import { LspManager } from "./lsp-manager.js";
 import type { TreeSitterManager } from "./tree-sitter/parser-manager.js";
 import type { WorkspaceIndex } from "./tree-sitter/workspace-index.js";
 
+/** Callback to check if a synthetic dot operation is in progress for a URI */
+export type SyntheticDotChecker = (uri: string) => boolean;
+
 interface TrackedDocument {
   uri: string;
   languageId: string;
@@ -20,8 +23,14 @@ export class FileSync {
   private tracked: Map<string, TrackedDocument> = new Map();
   private treeSitter: TreeSitterManager | null = null;
   private workspaceIndex: WorkspaceIndex | null = null;
+  private isSyntheticDotActive: SyntheticDotChecker = () => false;
 
   constructor(private manager: LspManager) {}
+
+  /** Set the synthetic dot checker to coordinate with the completions tool */
+  setSyntheticDotChecker(checker: SyntheticDotChecker): void {
+    this.isSyntheticDotActive = checker;
+  }
 
   /** Set the tree-sitter manager for cache invalidation */
   setTreeSitter(treeSitter: TreeSitterManager, workspaceIndex?: WorkspaceIndex): void {
@@ -76,6 +85,21 @@ export class FileSync {
     }
 
     if (!languageId) return;
+
+    // If a synthetic dot operation is in progress for this URI, defer the
+    // didChange to avoid version conflicts. The completions tool will revert
+    // the document to the correct content when it's done.
+    if (this.isSyntheticDotActive(uri)) {
+      // Schedule a retry after the synthetic dot window (200ms should be enough
+      // for the 100ms settle delay + completion request + revert)
+      setTimeout(() => {
+        // Re-check: if still active, skip — another retry would be needed
+        if (!this.isSyntheticDotActive(uri)) {
+          this.handleFileWrite(filePath).catch(() => {});
+        }
+      }, 200);
+      return;
+    }
 
     // Get client (start server lazily if configured)
     const client = await this.manager.getClientForFile(absPath).catch(() => null);

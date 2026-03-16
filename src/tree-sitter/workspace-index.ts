@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { readdir, stat, readFile } from "node:fs/promises";
 import { TreeSitterManager } from "./parser-manager.js";
 import { extractSymbols, type SymbolInfo, type SymbolKindValue } from "./symbol-extractor.js";
+import { SKIP_DIRS, MAX_FILE_SIZE, MAX_INDEX_FILES } from "../shared/constants.js";
 
 export interface SymbolEntry {
   name: string;
@@ -17,19 +18,7 @@ export interface SymbolEntry {
   line: number;    // 1-indexed
 }
 
-/** Directories to always skip when indexing */
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "build", "dist", "target", "out", ".next",
-  "__pycache__", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache",
-  "vendor", ".gradle", ".idea", ".vscode", ".bemol", "env",
-  "coverage", ".nyc_output", ".cache",
-]);
-
-/** Max files to index in the initial pass */
-const MAX_FILES = 5000;
-
-/** Max file size to parse (500KB) */
-const MAX_FILE_SIZE = 500 * 1024;
+// Shared constants imported from ../shared/constants.ts
 
 export class WorkspaceIndex {
   /** Map from symbol name (lowercase) to entries */
@@ -70,12 +59,12 @@ export class WorkspaceIndex {
 
   /** Collect all indexable files under a directory */
   private async collectFiles(dir: string, collected: string[] = []): Promise<string[]> {
-    if (collected.length >= MAX_FILES) return collected;
+    if (collected.length >= MAX_INDEX_FILES) return collected;
 
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (collected.length >= MAX_FILES) break;
+        if (collected.length >= MAX_INDEX_FILES) break;
 
         if (entry.isDirectory()) {
           if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;

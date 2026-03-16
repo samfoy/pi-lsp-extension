@@ -429,6 +429,14 @@ function shutdown(code: number): void {
 
 process.on("SIGTERM", () => shutdown(0));
 process.on("SIGINT", () => shutdown(0));
+process.on("uncaughtException", (err) => {
+  log(`Uncaught exception: ${err.message}\n${err.stack ?? ""}`);
+  shutdown(1);
+});
+process.on("unhandledRejection", (reason) => {
+  log(`Unhandled rejection: ${reason}`);
+  shutdown(1);
+});
 
 // ── Start ──────────────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@
  * from running bemol simultaneously in the same workspace.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync, openSync, closeSync, constants as fsConstants } from "node:fs";
 import { join } from "node:path";
 
 export interface LockInfo {
@@ -28,25 +28,43 @@ function isProcessAlive(pid: number): boolean {
 
 /**
  * Try to acquire a named lock for this workspace.
+ * Uses O_CREAT|O_EXCL for atomic creation to avoid TOCTOU races.
  * Returns true if acquired, false if another live session holds it.
  */
 export function acquireLock(workspaceRoot: string, name: string, sessionId: string): boolean {
   const locksDir = join(workspaceRoot, ".bemol", "locks");
   const lockFile = join(locksDir, `${name}.lock`);
 
-  // Check existing lock
+  // Check existing lock — clean up stale locks from dead processes
   const existing = readLock(workspaceRoot, name);
   if (existing && existing.pid !== process.pid && isProcessAlive(existing.pid)) {
     return false; // another live session holds this lock
   }
 
-  // Acquire (or take over stale lock)
+  // If stale lock exists, remove it first
+  if (existing) {
+    try { unlinkSync(lockFile); } catch { /* ignore */ }
+  }
+
+  // Acquire atomically using O_CREAT|O_EXCL (fails if file already exists)
   try {
     mkdirSync(locksDir, { recursive: true });
     const info: LockInfo = { pid: process.pid, startTime: Date.now(), sessionId };
-    writeFileSync(lockFile, JSON.stringify(info), { mode: 0o644 });
+    const content = JSON.stringify(info);
+
+    // O_WRONLY | O_CREAT | O_EXCL — atomic: fails with EEXIST if another process created it first
+    const fd = openSync(lockFile, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o644);
+    try {
+      writeFileSync(fd, content);
+    } finally {
+      closeSync(fd);
+    }
     return true;
-  } catch {
+  } catch (err: any) {
+    if (err.code === "EEXIST") {
+      // Another process acquired the lock between our unlink and open — that's fine
+      return false;
+    }
     return false;
   }
 }

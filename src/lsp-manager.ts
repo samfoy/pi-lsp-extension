@@ -11,6 +11,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { spawn as spawnChild } from "node:child_process";
 import { LspClient } from "./lsp-client.js";
 import { BemolManager } from "./bemol.js";
+import { getLanguageIdFromPath } from "./shared/language-map.js";
+import { DAEMON_SOCKET_READY_DELAY_MS, DAEMON_RETRY_INTERVAL_MS, DAEMON_MAX_RETRIES } from "./shared/timing.js";
 
 export interface ServerConfig {
   command: string;
@@ -39,36 +41,7 @@ const DEFAULT_SERVERS: Record<string, ServerConfig> = {
   java: { command: "jdtls", args: [] },
 };
 
-/** Map file extensions to LSP language IDs */
-const EXT_TO_LANGUAGE: Record<string, string> = {
-  ".ts": "typescript",
-  ".tsx": "typescriptreact",
-  ".js": "javascript",
-  ".jsx": "javascriptreact",
-  ".mts": "typescript",
-  ".mjs": "javascript",
-  ".cts": "typescript",
-  ".cjs": "javascript",
-  ".rs": "rust",
-  ".py": "python",
-  ".go": "go",
-  ".java": "java",
-  ".c": "c",
-  ".h": "c",
-  ".cpp": "cpp",
-  ".cc": "cpp",
-  ".hpp": "cpp",
-  ".cs": "csharp",
-  ".rb": "ruby",
-  ".lua": "lua",
-  ".zig": "zig",
-  ".swift": "swift",
-  ".kt": "kotlin",
-  ".kts": "kotlin",
-  ".scala": "scala",
-  ".ex": "elixir",
-  ".exs": "elixir",
-};
+// File extension → language ID mapping is in shared/language-map.ts
 
 export interface ServerStatus {
   languageId: string;
@@ -195,8 +168,7 @@ export class LspManager {
 
   /** Resolve a file path to a language ID */
   getLanguageId(filePath: string): string | undefined {
-    const ext = filePath.match(/\.[^.]+$/)?.[0]?.toLowerCase();
-    return ext ? EXT_TO_LANGUAGE[ext] : undefined;
+    return getLanguageIdFromPath(filePath);
   }
 
   /** Get a file URI from a path */
@@ -356,13 +328,13 @@ export class LspManager {
       try {
         await this.spawnDaemon(languageId, config, workspaceFolders, initializationOptions);
         // Small delay to let daemon start listening
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, DAEMON_SOCKET_READY_DELAY_MS));
 
         const daemonSocket = this.getSocketPath(languageId)!;
 
         // Retry connection (daemon may still be initializing jdtls which can take minutes)
         let lastErr: Error | null = null;
-        for (let attempt = 0; attempt < 60; attempt++) {
+        for (let attempt = 0; attempt < DAEMON_MAX_RETRIES; attempt++) {
           try {
             const client = new LspClient({
               command: config.command,
@@ -383,7 +355,7 @@ export class LspManager {
             if (!this.isDaemonAlive(languageId)) {
               throw new Error(`Daemon for ${languageId} died during startup: ${err.message}`);
             }
-            await new Promise((r) => setTimeout(r, 5000));
+            await new Promise((r) => setTimeout(r, DAEMON_RETRY_INTERVAL_MS));
           }
         }
         throw lastErr ?? new Error("Failed to connect to daemon");

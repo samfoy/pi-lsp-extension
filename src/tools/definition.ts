@@ -11,31 +11,11 @@ import type { TreeSitterManager } from "../tree-sitter/parser-manager.js";
 import type { WorkspaceIndex } from "../tree-sitter/workspace-index.js";
 import { resolveProvider } from "../resolve-provider.js";
 import { getNodeAtPosition, findDefinition } from "../tree-sitter/symbol-extractor.js";
+import { formatLocation, formatLocationLink } from "../shared/format.js";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { relative } from "node:path";
 
 type DefinitionResult = Location | Location[] | LocationLink[] | null;
-
-function formatLocation(loc: Location, rootDir: string): string {
-  try {
-    const absPath = fileURLToPath(loc.uri);
-    const relPath = relative(rootDir, absPath);
-    return `${relPath}:${loc.range.start.line + 1}:${loc.range.start.character + 1}`;
-  } catch {
-    return `${loc.uri}:${loc.range.start.line + 1}:${loc.range.start.character + 1}`;
-  }
-}
-
-function formatLocationLink(link: LocationLink, rootDir: string): string {
-  try {
-    const absPath = fileURLToPath(link.targetUri);
-    const relPath = relative(rootDir, absPath);
-    return `${relPath}:${link.targetSelectionRange.start.line + 1}:${link.targetSelectionRange.start.character + 1}`;
-  } catch {
-    return `${link.targetUri}:${link.targetSelectionRange.start.line + 1}:${link.targetSelectionRange.start.character + 1}`;
-  }
-}
 
 const DefinitionParams = Type.Object({
   path: Type.String({ description: "File path" }),
@@ -93,7 +73,7 @@ export function createDefinitionTool(
 
           return { content: [{ type: "text", text }], details: { count: locations.length } };
         } catch (err: any) {
-          return { content: [{ type: "text", text: `LSP definition request failed: ${err.message}` }], details: { count: 0 } } as any;
+          return { content: [{ type: "text", text: `LSP definition request failed: ${err.message}` }], details: { count: 0 } };
         }
       }
 
@@ -148,7 +128,7 @@ export function createDefinitionTool(
         }
       }
 
-      return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0 } } as any;
+      return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0 } };
     },
 
     renderCall(args, theme) {

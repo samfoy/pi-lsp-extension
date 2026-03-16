@@ -38,7 +38,9 @@ import { createCodeOverviewTool } from "./tools/code-overview.js";
 import { createCompletionsTool } from "./tools/completions.js";
 import { createCodeSearchTool } from "./tools/code-search.js";
 import { createCodeRewriteTool } from "./tools/code-rewrite.js";
+import { syntheticDotLocks } from "./tools/completions.js";
 import { relative } from "node:path";
+import { DIAGNOSTIC_SETTLE_DELAY_MS } from "./shared/timing.js";
 
 export default function lspExtension(pi: ExtensionAPI) {
   let manager: LspManager | null = null;
@@ -49,26 +51,32 @@ export default function lspExtension(pi: ExtensionAPI) {
   let latestCtx: any = null;
 
   /** Build lifecycle callbacks that update UI status */
+  const setLspStatus = (color: string, text: string) => {
+    const ctx = latestCtx;
+    if (!ctx?.ui?.theme) return;
+    ctx.ui.setStatus("lsp", ctx.ui.theme.fg(color, text));
+  };
+
   const makeCallbacks = (): LspManagerCallbacks => ({
     onBemolStart: () => {
-      latestCtx?.ui?.setStatus("lsp", latestCtx.ui.theme.fg("warning", "LSP: running bemol..."));
+      setLspStatus("warning", "LSP: running bemol...");
     },
     onBemolEnd: (success: boolean, duration: number) => {
       const secs = (duration / 1000).toFixed(1);
       if (success) {
-        latestCtx?.ui?.setStatus("lsp", latestCtx.ui.theme.fg("accent", `LSP: bemol done (${secs}s)`));
+        setLspStatus("accent", `LSP: bemol done (${secs}s)`);
       } else {
-        latestCtx?.ui?.setStatus("lsp", latestCtx.ui.theme.fg("warning", `LSP: bemol failed (${secs}s)`));
+        setLspStatus("warning", `LSP: bemol failed (${secs}s)`);
       }
     },
     onServerStart: (languageId: string, command: string) => {
-      latestCtx?.ui?.setStatus("lsp", latestCtx.ui.theme.fg("warning", `LSP: starting ${languageId} (${command})...`));
+      setLspStatus("warning", `LSP: starting ${languageId} (${command})...`);
     },
     onServerReady: (languageId: string) => {
-      latestCtx?.ui?.setStatus("lsp", latestCtx.ui.theme.fg("accent", `LSP: ${languageId} ready`));
+      setLspStatus("accent", `LSP: ${languageId} ready`);
     },
-    onServerError: (languageId: string, error: string) => {
-      latestCtx?.ui?.setStatus("lsp", latestCtx.ui.theme.fg("error", `LSP: ${languageId} failed`));
+    onServerError: (languageId: string, _error: string) => {
+      setLspStatus("error", `LSP: ${languageId} failed`);
     },
   });
 
@@ -77,6 +85,7 @@ export default function lspExtension(pi: ExtensionAPI) {
     if (!manager) {
       manager = new LspManager(process.cwd(), undefined, makeCallbacks());
       fileSync = new FileSync(manager);
+      fileSync.setSyntheticDotChecker((uri) => syntheticDotLocks.has(uri));
       treeSitter = new TreeSitterManager();
       workspaceIndex = new WorkspaceIndex(process.cwd(), treeSitter);
       fileSync.setTreeSitter(treeSitter, workspaceIndex);
@@ -108,14 +117,25 @@ export default function lspExtension(pi: ExtensionAPI) {
   // Initialize manager (uses cwd at session start time)
   pi.on("session_start", async (_event, ctx) => {
     latestCtx = ctx;
+
+    // If manager was already created eagerly (e.g. by a tool before session_start),
+    // shut it down so we can re-create with the correct ctx.cwd.
+    if (manager) {
+      await manager.shutdownAll().catch(() => {});
+      if (treeSitter) treeSitter.shutdown();
+    }
+
     manager = new LspManager(ctx.cwd, undefined, makeCallbacks());
     fileSync = new FileSync(manager);
+    fileSync.setSyntheticDotChecker((uri) => syntheticDotLocks.has(uri));
     treeSitter = new TreeSitterManager();
     workspaceIndex = new WorkspaceIndex(ctx.cwd, treeSitter);
     fileSync.setTreeSitter(treeSitter, workspaceIndex);
 
     // Initialize tree-sitter in the background (don't block session start)
-    treeSitter.init().catch(() => {});
+    treeSitter.init().catch((err) => {
+      console.error(`[pi-lsp-extension] tree-sitter WASM init failed: ${err?.message ?? err}`);
+    });
 
     // Detect Brazil workspace and show appropriate status
     const bemol = manager.bemol;
@@ -165,10 +185,16 @@ export default function lspExtension(pi: ExtensionAPI) {
   pi.registerTool(createCompletionsTool(managerProxy, {
     getTrackedVersion: (uri) => getFileSync().getTrackedVersion(uri),
     setTrackedVersion: (uri, v) => getFileSync().setTrackedVersion(uri, v),
+    isSyntheticDotActive: (uri) => syntheticDotLocks.has(uri),
   }));
-  pi.registerTool(createCodeOverviewTool(process.cwd(), treeSitterProxy, workspaceIndexProxy));
-  pi.registerTool(createCodeSearchTool(process.cwd(), treeSitterProxy));
-  pi.registerTool(createCodeRewriteTool(process.cwd(), treeSitterProxy));
+  const getRootDir = () => manager?.resolvePath(".") ?? process.cwd();
+  pi.registerTool(createCodeOverviewTool(getRootDir, treeSitterProxy, workspaceIndexProxy));
+  pi.registerTool(createCodeSearchTool(getRootDir, treeSitterProxy));
+  pi.registerTool(createCodeRewriteTool(getRootDir, treeSitterProxy, {
+    onFileModified: (filePath: string) => {
+      getFileSync().handleFileWrite(filePath).catch(() => {});
+    },
+  }));
 
   // File sync: track file reads/writes/edits
   // After writes/edits, append file-scoped error diagnostics to the tool result
@@ -206,7 +232,7 @@ export default function lspExtension(pi: ExtensionAPI) {
       if (!client) return;
 
       // Wait briefly for the LSP to publish updated diagnostics
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, DIAGNOSTIC_SETTLE_DELAY_MS));
 
       const uri = manager.getFileUri(path);
       const diagnostics = client.getDiagnostics(uri);
@@ -290,12 +316,13 @@ export default function lspExtension(pi: ExtensionAPI) {
       const mgr = getManager();
       const bemol = mgr.bemol;
 
-      if (!bemol.isBrazilWorkspace) {
+      const subcommand = args?.trim().toLowerCase() || "run";
+
+      // Allow 'status' even outside Brazil workspaces
+      if (!bemol.isBrazilWorkspace && subcommand !== "status") {
         ctx.ui.notify("Not in a Brazil workspace (no packageInfo found)", "warning");
         return;
       }
-
-      const subcommand = args?.trim().toLowerCase() || "run";
 
       switch (subcommand) {
         case "run": {
@@ -369,6 +396,25 @@ export default function lspExtension(pi: ExtensionAPI) {
               lines.push(`  ... and ${status.workspaceRoots.length - 10} more`);
             }
           }
+
+          // Also show LSP server status for visibility
+          if (manager) {
+            const lspStatuses = manager.getStatus();
+            if (lspStatuses.length > 0) {
+              lines.push("");
+              lines.push("LSP servers:");
+              for (const s of lspStatuses) {
+                const icon = s.running ? "🟢" : "⚪";
+                const diags = s.diagnosticsCount > 0 ? ` (${s.diagnosticsCount} diagnostics)` : "";
+                const shared = s.shared ? " [shared]" : "";
+                lines.push(`  ${icon} ${s.languageId}: ${s.command}${diags}${shared}`);
+              }
+            } else {
+              lines.push("");
+              lines.push("LSP servers: none running");
+            }
+          }
+
           ctx.ui.notify(lines.join("\n"), "info");
           break;
         }

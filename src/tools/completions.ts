@@ -16,6 +16,7 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { LspManager } from "../lsp-manager.js";
 import { readFile } from "node:fs/promises";
+import { SYNTHETIC_DOT_SETTLE_DELAY_MS } from "../shared/timing.js";
 
 /** Map CompletionItemKind to human-readable labels */
 const KIND_LABELS: Record<number, string> = {
@@ -150,7 +151,12 @@ function insertDot(content: string, line: number, character: number): string {
 export interface VersionTracker {
   getTrackedVersion(uri: string): number | null;
   setTrackedVersion(uri: string, version: number): void;
+  /** Check if a synthetic dot operation is in progress for a URI */
+  isSyntheticDotActive(uri: string): boolean;
 }
+
+/** Simple per-URI lock to prevent concurrent synthetic dot + file write version conflicts */
+export const syntheticDotLocks = new Set<string>();
 
 export function createCompletionsTool(
   manager: LspManager,
@@ -177,7 +183,7 @@ export function createCompletionsTool(
             { type: "text", text: manager.getUnavailableReason(filePath) },
           ],
           details: { count: 0, total: 0 },
-        } as any;
+        };
       }
 
       // Check if server supports completions
@@ -208,7 +214,12 @@ export function createCompletionsTool(
         let completionPosition = position;
 
         if (trigger === "auto") {
+          // Acquire per-URI lock to prevent concurrent version mutations
+          if (syntheticDotLocks.has(uri)) {
+            // Another synthetic dot operation is in progress — skip synthetic trigger
+          } else {
           try {
+            syntheticDotLocks.add(uri);
             const absPath = manager.resolvePath(filePath);
             const fileContent = await readFile(absPath, "utf-8");
             const triggerPos = shouldSyntheticTrigger(fileContent, position.line, position.character);
@@ -238,10 +249,13 @@ export function createCompletionsTool(
               syntheticDot = true;
 
               // Brief delay to let the LSP process the change
-              await new Promise((r) => setTimeout(r, 100));
+              await new Promise((r) => setTimeout(r, SYNTHETIC_DOT_SETTLE_DELAY_MS));
             }
           } catch {
             // If reading file or inserting dot fails, fall through to normal completion
+          } finally {
+            syntheticDotLocks.delete(uri);
+          }
           }
         }
 
@@ -345,7 +359,7 @@ export function createCompletionsTool(
             },
           ],
           details: { count: 0, total: 0 },
-        } as any;
+        };
       }
     },
 

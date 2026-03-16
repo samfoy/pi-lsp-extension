@@ -5,8 +5,9 @@
  * Grammar .wasm files come from the tree-sitter-wasms npm package.
  */
 
-import { resolve, extname } from "node:path";
+import { resolve } from "node:path";
 import Parser from "web-tree-sitter";
+import { getLanguageIdFromPath } from "../shared/language-map.js";
 
 type Language = Parser.Language;
 type Tree = Parser.Tree;
@@ -34,43 +35,12 @@ const LANGUAGE_TO_GRAMMAR: Record<string, string> = {
   css: "tree-sitter-css.wasm",
 };
 
-/** Map file extensions to language IDs (mirrors lsp-manager's EXT_TO_LANGUAGE) */
-const EXT_TO_LANGUAGE: Record<string, string> = {
-  ".ts": "typescript",
-  ".tsx": "typescriptreact",
-  ".js": "javascript",
-  ".jsx": "javascriptreact",
-  ".mts": "typescript",
-  ".mjs": "javascript",
-  ".cts": "typescript",
-  ".cjs": "javascript",
-  ".py": "python",
-  ".rs": "rust",
-  ".go": "go",
-  ".java": "java",
-  ".c": "c",
-  ".h": "c",
-  ".cpp": "cpp",
-  ".cc": "cpp",
-  ".hpp": "cpp",
-  ".rb": "ruby",
-  ".kt": "kotlin",
-  ".kts": "kotlin",
-  ".scala": "scala",
-  ".swift": "swift",
-  ".lua": "lua",
-  ".sh": "bash",
-  ".bash": "bash",
-  ".zsh": "bash",
-  ".json": "json",
-  ".html": "html",
-  ".htm": "html",
-  ".css": "css",
-};
+// File extension → language ID mapping is in shared/language-map.ts
 
 interface CachedTree {
   tree: Tree;
   contentHash: number;
+  contentLength: number;
 }
 
 export class TreeSitterManager {
@@ -113,8 +83,7 @@ export class TreeSitterManager {
 
   /** Get the language ID for a file path based on extension */
   getLanguageId(filePath: string): string | undefined {
-    const ext = extname(filePath).toLowerCase();
-    return EXT_TO_LANGUAGE[ext];
+    return getLanguageIdFromPath(filePath);
   }
 
   /** Check if we have a grammar available for a language */
@@ -181,8 +150,9 @@ export class TreeSitterManager {
   /** Parse content with an explicit language ID */
   async parseWithLanguage(filePath: string, content: string, languageId: string): Promise<Tree | null> {
     const hash = simpleHash(content);
+    const length = content.length;
     const cached = this.cachedTrees.get(filePath);
-    if (cached && cached.contentHash === hash) return cached.tree;
+    if (cached && cached.contentHash === hash && cached.contentLength === length) return cached.tree;
 
     const parser = await this.getParser(languageId);
     if (!parser) return null;
@@ -193,7 +163,7 @@ export class TreeSitterManager {
     // Evict old tree
     if (cached) cached.tree.delete();
 
-    this.cachedTrees.set(filePath, { tree, contentHash: hash });
+    this.cachedTrees.set(filePath, { tree, contentHash: hash, contentLength: length });
     return tree;
   }
 

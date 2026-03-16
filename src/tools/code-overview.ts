@@ -17,14 +17,9 @@ import { existsSync } from "node:fs";
 import type { TreeSitterManager } from "../tree-sitter/parser-manager.js";
 import type { WorkspaceIndex } from "../tree-sitter/workspace-index.js";
 import { extractSymbols } from "../tree-sitter/symbol-extractor.js";
+import { SKIP_DIRS } from "../shared/constants.js";
 
-/** Directories to skip in the tree */
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "build", "dist", "target", "out", ".next",
-  "__pycache__", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache",
-  "vendor", ".gradle", ".idea", ".vscode", ".bemol", "env",
-  "coverage", ".nyc_output", ".cache",
-]);
+// Shared constant imported from ../shared/constants.ts
 
 /** Known dependency manifest files */
 const MANIFESTS = [
@@ -54,10 +49,12 @@ const OverviewParams = Type.Object({
 interface OverviewDetails { files: number; symbols: number }
 
 export function createCodeOverviewTool(
-  rootDir: string,
+  rootDirOrGetter: string | (() => string),
   treeSitter: TreeSitterManager,
   workspaceIndex: WorkspaceIndex,
 ): ToolDefinition<typeof OverviewParams, OverviewDetails> {
+  const getRootDir = typeof rootDirOrGetter === "function" ? rootDirOrGetter : () => rootDirOrGetter;
+
   return {
     name: "code_overview",
     label: "Code Overview",
@@ -66,6 +63,7 @@ export function createCodeOverviewTool(
     parameters: OverviewParams,
 
     async execute(_toolCallId, params) {
+      const rootDir = getRootDir();
       const targetDir = resolve(rootDir, params.path ?? ".");
       const maxDepth = params.depth ?? MAX_TREE_DEPTH;
 

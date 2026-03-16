@@ -143,7 +143,7 @@ export function createDiagnosticsTool(
       return {
         content: [{ type: "text", text: manager.getUnavailableReason(filePath) }],
         details: { count: 0 },
-      } as any;
+      };
     },
 
     renderCall(args, theme) {

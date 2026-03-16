@@ -102,7 +102,7 @@ export function createSymbolsTool(
         return {
           content: [{ type: "text", text: "Please provide either 'path' for file symbols or 'query' for workspace symbol search." }],
           details: { count: 0 },
-        } as any;
+        };
       }
 
       // Document symbols
@@ -135,7 +135,7 @@ export function createSymbolsTool(
 
             return { content: [{ type: "text", text }], details: { count: lines.length } };
           } catch (err: any) {
-            return { content: [{ type: "text", text: `LSP document symbols request failed: ${err.message}` }], details: { count: 0 } } as any;
+            return { content: [{ type: "text", text: `LSP document symbols request failed: ${err.message}` }], details: { count: 0 } };
           }
         }
 
@@ -163,7 +163,7 @@ export function createSymbolsTool(
           }
         }
 
-        return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0 } } as any;
+        return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0 } };
       }
 
       // Workspace symbol search
@@ -192,7 +192,7 @@ export function createSymbolsTool(
 
             return { content: [{ type: "text", text }], details: { count: result.length } };
           } catch (err: any) {
-            return { content: [{ type: "text", text: `LSP workspace symbols request failed: ${err.message}` }], details: { count: 0 } } as any;
+            return { content: [{ type: "text", text: `LSP workspace symbols request failed: ${err.message}` }], details: { count: 0 } };
           }
         }
       }
@@ -221,7 +221,7 @@ export function createSymbolsTool(
       return {
         content: [{ type: "text", text: "No LSP servers are currently running and no workspace index is available. Use lsp_diagnostics or lsp_hover on a file first to start a server." }],
         details: { count: 0 },
-      } as any;
+      };
     },
 
     renderCall(args, theme) {

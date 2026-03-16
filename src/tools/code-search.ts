@@ -26,9 +26,11 @@ interface SearchDetails {
 }
 
 export function createCodeSearchTool(
-  rootDir: string,
+  rootDirOrGetter: string | (() => string),
   treeSitter: TreeSitterManager,
 ): ToolDefinition<typeof SearchParams> {
+  const getRootDir = typeof rootDirOrGetter === "function" ? rootDirOrGetter : () => rootDirOrGetter;
+
   return {
     name: "code_search",
     label: "Code Search",
@@ -39,6 +41,7 @@ export function createCodeSearchTool(
     parameters: SearchParams,
 
     async execute(_toolCallId, params) {
+      const rootDir = getRootDir();
       const { pattern: patternStr, language, path, max_results } = params;
 
       // Compile the pattern

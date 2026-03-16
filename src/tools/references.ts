@@ -8,18 +8,7 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { truncateHead, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { LspManager } from "../lsp-manager.js";
-import { fileURLToPath } from "node:url";
-import { relative } from "node:path";
-
-function formatLocation(loc: Location, rootDir: string): string {
-  try {
-    const absPath = fileURLToPath(loc.uri);
-    const relPath = relative(rootDir, absPath);
-    return `${relPath}:${loc.range.start.line + 1}:${loc.range.start.character + 1}`;
-  } catch {
-    return `${loc.uri}:${loc.range.start.line + 1}:${loc.range.start.character + 1}`;
-  }
-}
+import { formatLocation } from "../shared/format.js";
 
 const ReferencesParams = Type.Object({
   path: Type.String({ description: "File path" }),
@@ -44,7 +33,7 @@ export function createReferencesTool(manager: LspManager): ToolDefinition<typeof
       const filePath = params.path.replace(/^@/, "");
       const client = await manager.getClientForFile(filePath).catch(() => null);
       if (!client) {
-        return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0 } } as any;
+        return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0 } };
       }
 
       const uri = manager.getFileUri(filePath);
@@ -72,7 +61,7 @@ export function createReferencesTool(manager: LspManager): ToolDefinition<typeof
 
         return { content: [{ type: "text", text: resultText }], details: { count: locations.length } };
       } catch (err: any) {
-        return { content: [{ type: "text", text: `LSP references request failed: ${err.message}` }], details: { count: 0 } } as any;
+        return { content: [{ type: "text", text: `LSP references request failed: ${err.message}` }], details: { count: 0 } };
       }
     },
 

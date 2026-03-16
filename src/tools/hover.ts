@@ -66,7 +66,7 @@ export function createHoverTool(
           }
           return { content: [{ type: "text", text: formatHoverContent(hover) }], details: { hasResult: true } };
         } catch (err: any) {
-          return { content: [{ type: "text", text: `LSP hover request failed: ${err.message}` }], details: { hasResult: false } } as any;
+          return { content: [{ type: "text", text: `LSP hover request failed: ${err.message}` }], details: { hasResult: false } };
         }
       }
 
@@ -92,7 +92,7 @@ export function createHoverTool(
         }
       }
 
-      return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { hasResult: false } } as any;
+      return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { hasResult: false } };
     },
 
     renderCall(args, theme) {

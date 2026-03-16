@@ -15,6 +15,7 @@ import type {
   CompiledPattern,
   PatternNode,
 } from "./pattern-compiler.js";
+import { SKIP_DIRS, MAX_FILE_SIZE, MAX_INDEX_FILES } from "../shared/constants.js";
 
 type SyntaxNode = Parser.SyntaxNode;
 
@@ -39,14 +40,7 @@ export interface SearchMatch {
 
 // ── Directories to skip ─────────────────────────────────────────────────────
 
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "build", "dist", "target", "out", ".next",
-  "__pycache__", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache",
-  "vendor", ".gradle", ".idea", ".vscode", ".bemol", "env",
-  "coverage", ".nyc_output", ".cache",
-]);
-
-const MAX_FILE_SIZE = 500 * 1024;
+// Shared constants imported from ../shared/constants.ts
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
@@ -115,7 +109,7 @@ export async function collectFilesByLanguage(
   languageId: string,
   treeSitter: TreeSitterManager,
   collected: string[] = [],
-  maxFiles: number = 5000,
+  maxFiles: number = MAX_INDEX_FILES,
 ): Promise<string[]> {
   if (collected.length >= maxFiles) return collected;
 

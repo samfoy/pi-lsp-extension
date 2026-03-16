@@ -14,6 +14,11 @@ import { compilePattern } from "../tree-sitter/pattern-compiler.js";
 import { searchFiles } from "../tree-sitter/search-engine.js";
 import { computeRewrites, applyRewrites } from "../tree-sitter/rewrite-engine.js";
 
+/** Callback to notify when files are modified by rewrites */
+export interface RewriteFileChangeCallback {
+  onFileModified(filePath: string): void;
+}
+
 const RewriteParams = Type.Object({
   pattern: Type.String({ description: "Structural pattern to match (with $NAME / $$$NAME metavariables)" }),
   replacement: Type.String({ description: "Replacement template using the same metavariables" }),
@@ -29,9 +34,12 @@ interface RewriteDetails {
 }
 
 export function createCodeRewriteTool(
-  rootDir: string,
+  rootDirOrGetter: string | (() => string),
   treeSitter: TreeSitterManager,
+  fileChangeCallback?: RewriteFileChangeCallback,
 ): ToolDefinition<typeof RewriteParams> {
+  const getRootDir = typeof rootDirOrGetter === "function" ? rootDirOrGetter : () => rootDirOrGetter;
+
   return {
     name: "code_rewrite",
     label: "Code Rewrite",
@@ -43,6 +51,7 @@ export function createCodeRewriteTool(
     parameters: RewriteParams,
 
     async execute(_toolCallId, params) {
+      const rootDir = getRootDir();
       const { pattern: patternStr, replacement, language, path, dry_run } = params;
       const isDryRun = dry_run !== false; // default true
 
@@ -124,6 +133,14 @@ export function createCodeRewriteTool(
 
       // Apply mode
       const result = await applyRewrites(matches, replacement);
+
+      // Notify FileSync about modified files so LSP servers get updated
+      if (fileChangeCallback && result.filesModified > 0) {
+        const modifiedFiles = new Set(result.changes.map((c) => c.file));
+        for (const file of modifiedFiles) {
+          fileChangeCallback.onFileModified(file);
+        }
+      }
 
       const lines: string[] = [];
       lines.push(`Applied ${result.changes.length} change${result.changes.length !== 1 ? "s" : ""} across ${result.filesModified} file${result.filesModified !== 1 ? "s" : ""}:\n`);
