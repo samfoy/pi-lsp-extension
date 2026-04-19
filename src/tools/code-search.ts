@@ -1,5 +1,5 @@
 /**
- * code_search — Find code matching a structural pattern with metavariables.
+ * ast_search — Find code matching a structural pattern with metavariables.
  *
  * Uses tree-sitter AST matching to find code by structure, not text.
  * Supports `$NAME` for single-node wildcards and `$$$NAME` for variadic.
@@ -32,7 +32,7 @@ export function createCodeSearchTool(
   const getRootDir = typeof rootDirOrGetter === "function" ? rootDirOrGetter : () => rootDirOrGetter;
 
   return {
-    name: "code_search",
+    name: "ast_search",
     label: "Code Search",
     description:
       "Find code matching a structural pattern using AST matching. " +

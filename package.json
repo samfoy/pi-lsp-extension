@@ -1,6 +1,6 @@
 {
   "name": "pi-lsp-extension",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Pi coding agent extension for LSP (Language Server Protocol) integration",
   "keywords": [

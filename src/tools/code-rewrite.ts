@@ -1,7 +1,7 @@
 /**
  * code_rewrite — Transform code matching a structural pattern into a replacement.
  *
- * Matches code by AST structure (like code_search), then applies a replacement
+ * Matches code by AST structure (like ast_search), then applies a replacement
  * template that can reference captured metavariables. Supports dry-run preview.
  */
 
