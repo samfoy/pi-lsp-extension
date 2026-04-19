@@ -193,6 +193,11 @@ export class TreeSitterManager {
     this.parsers.clear();
     this.languages.clear();
   }
+
+  /** Alias for shutdown() — conventional dispose pattern for extension lifecycle */
+  dispose(): void {
+    this.shutdown();
+  }
 }
 
 /**

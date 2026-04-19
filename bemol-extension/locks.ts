@@ -5,7 +5,7 @@
  * from running bemol simultaneously in the same workspace.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync, openSync, closeSync, constants as fsConstants } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync, openSync, closeSync, statSync, constants as fsConstants } from "node:fs";
 import { join } from "node:path";
 
 export interface LockInfo {
@@ -26,6 +26,8 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+const STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Try to acquire a named lock for this workspace.
  * Uses O_CREAT|O_EXCL for atomic creation to avoid TOCTOU races.
@@ -35,10 +37,22 @@ export function acquireLock(workspaceRoot: string, name: string, sessionId: stri
   const locksDir = join(workspaceRoot, ".bemol", "locks");
   const lockFile = join(locksDir, `${name}.lock`);
 
-  // Check existing lock — clean up stale locks from dead processes
+  // Check existing lock — clean up stale locks from dead processes or old age
   const existing = readLock(workspaceRoot, name);
   if (existing && existing.pid !== process.pid && isProcessAlive(existing.pid)) {
-    return false; // another live session holds this lock
+    // Process is alive, but check if the lock is older than 5 minutes (stale)
+    try {
+      const stat = statSync(lockFile);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs > STALE_LOCK_THRESHOLD_MS) {
+        // Lock is stale — remove it even though the process is alive
+        try { unlinkSync(lockFile); } catch { /* ignore */ }
+      } else {
+        return false; // another live session holds a fresh lock
+      }
+    } catch {
+      return false; // can't stat, assume lock is valid
+    }
   }
 
   // If stale lock exists, remove it first
