@@ -6,6 +6,7 @@
  */
 
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import Parser from "web-tree-sitter";
 import { getLanguageIdFromPath } from "../shared/language-map.js";
 
@@ -56,7 +57,7 @@ export class TreeSitterManager {
   constructor() {
     // Resolve the grammars directory from tree-sitter-wasms package
     this.grammarsDir = resolve(
-      new URL(".", import.meta.url).pathname,
+      fileURLToPath(new URL(".", import.meta.url)),
       "../../node_modules/tree-sitter-wasms/out"
     );
   }
@@ -72,7 +73,7 @@ export class TreeSitterManager {
       locateFile: (scriptName: string) => {
         // web-tree-sitter needs its own .wasm file
         return resolve(
-          new URL(".", import.meta.url).pathname,
+          fileURLToPath(new URL(".", import.meta.url)),
           "../../node_modules/web-tree-sitter",
           scriptName
         );
