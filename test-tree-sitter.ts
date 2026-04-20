@@ -8,8 +8,9 @@
 import { TreeSitterManager } from "./src/tree-sitter/parser-manager.js";
 import { extractSymbols, getNodeAtPosition, findDefinition, getSyntaxErrors, getSignatureText, getEnclosingDeclaration } from "./src/tree-sitter/symbol-extractor.js";
 import { WorkspaceIndex } from "./src/tree-sitter/workspace-index.js";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let passed = 0;
 let failed = 0;
@@ -356,6 +357,28 @@ export function newHelper(): void {}
   assert(tree3 !== tree1, "different content returns new tree");
   mgr.invalidate("/tmp/cache-test.ts");
   assert(mgr.getCachedTree("/tmp/cache-test.ts") === null, "invalidate clears cache");
+
+
+  // ── 12. Windows path regression (fileURLToPath vs .pathname) ──
+  // On Windows, import.meta.url is 'file:///C:/path/...'.
+  // Using .pathname gives '/C:/path/...' — path.resolve() treats the leading
+  // slash as 'root of current drive', so if CWD is on E:\ you get E:\C:\...
+  // Using fileURLToPath() correctly produces 'C:\path\...' on Windows.
+  console.log("\n🪟 Windows path regression (fileURLToPath vs .pathname)");
+
+  const moduleDir = fileURLToPath(new URL(".", import.meta.url));
+  const wasmPath = resolve(moduleDir, "node_modules/web-tree-sitter/tree-sitter.wasm");
+
+  assert(existsSync(wasmPath), `wasm resolves to a real file: ${wasmPath}`);
+
+  // Detect drive-doubling: a sign that .pathname was used on Windows.
+  // e.g. 'E:\\C:\\Users\\...' when CWD drive != module drive.
+  const hasDriveDoubling = /[A-Za-z]:\\[A-Za-z]:\\/.test(wasmPath);
+  assert(!hasDriveDoubling, `path has no doubled drive letter: ${wasmPath}`);
+
+  // Also verify the grammar dir resolves cleanly to real .wasm grammar files.
+  const grammarPath = resolve(moduleDir, "node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm");
+  assert(existsSync(grammarPath), `grammar wasm resolves to a real file: ${grammarPath}`);
 
   // ── Cleanup ──
   try { rmSync(testDir, { recursive: true }); } catch {}
