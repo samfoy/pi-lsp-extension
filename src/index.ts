@@ -66,6 +66,17 @@ interface ProjectLspConfig {
   lombokJar?: string;
   /** Custom server configs keyed by language ID */
   servers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+  /**
+   * Auto-inject LSP error diagnostics into write/edit tool results.
+   * Set to false to disable, or provide an array of language IDs to enable selectively.
+   * Default: true (all languages).
+   *
+   * Examples:
+   *   true              — inject for all languages
+   *   false             — never inject
+   *   ["typescript"]    — only inject for TypeScript files
+   */
+  autoInjectDiagnostics?: boolean | string[];
 }
 
 /** Load .pi-lsp.json from a directory. Returns null if not found or invalid. */
@@ -103,6 +114,8 @@ export default function lspExtension(pi: ExtensionAPI) {
   let pendingProvider: WorkspaceProvider | null = null;
   // Store latest ctx for lifecycle callbacks (updated on each event)
   let latestCtx: any = null;
+  // Project config — loaded on session_start, used by auto-injection guard
+  let projectConfig: ProjectLspConfig | null = null;
 
   // Listen for external workspace providers (e.g. bemol extension).
   // Also check if one was already registered before we loaded (load order varies).
@@ -223,7 +236,7 @@ export default function lspExtension(pi: ExtensionAPI) {
     }
 
     // Load project config and apply settings
-    const projectConfig = loadProjectConfig(ctx.cwd);
+    projectConfig = loadProjectConfig(ctx.cwd);
     if (projectConfig) {
       // Apply custom server configs
       if (projectConfig.servers) {
@@ -327,6 +340,11 @@ export default function lspExtension(pi: ExtensionAPI) {
 
       const languageId = manager.getLanguageId(path);
       if (!languageId) return;
+
+      // Check autoInjectDiagnostics config
+      const inject = projectConfig?.autoInjectDiagnostics;
+      if (inject === false) return;
+      if (Array.isArray(inject) && !inject.includes(languageId)) return;
 
       const client = manager.getRunningClient(languageId);
       if (!client) return;

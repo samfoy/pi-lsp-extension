@@ -114,6 +114,7 @@ Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-
 {
   "autoStart": ["java", "typescript"],
   "lombokJar": "auto",
+  "autoInjectDiagnostics": ["typescript"],
   "servers": {
     "python": { "command": "pylsp", "args": [] }
   }
@@ -124,6 +125,7 @@ Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-
 |-------|-------------|
 | `autoStart` | Array of language IDs to start eagerly on session launch. Servers begin initializing in the background immediately — no need to wait for the first tool call. Ideal for slow servers like `jdtls`. |
 | `lombokJar` | Path to a Lombok jar (absolute or relative to project root), or `"auto"` to auto-detect in Brazil workspaces. Applied before auto-start so jdtls launches with the correct `-javaagent` flag. |
+| `autoInjectDiagnostics` | Controls whether LSP errors are auto-appended to `write`/`edit` tool results. `true` (default) enables for all languages, `false` disables entirely, or pass an array of language IDs (e.g. `["typescript"]`) to enable selectively. Disable for Java/Brazil workspaces where Lombok and dependency-chain false positives create noise. |
 | `servers` | Custom server configs keyed by language ID. Overrides the built-in defaults. Each entry has `command`, optional `args` (string array), and optional `env` (key-value pairs). |
 
 The config file is loaded once at session start. Changes require restarting the pi session.
