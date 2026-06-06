@@ -19,7 +19,7 @@ import {
   SocketMessageReader,
   SocketMessageWriter,
   type MessageConnection,
-} from "vscode-languageserver-protocol/node.js";
+} from "vscode-languageserver-protocol/node";
 import type {
   InitializeParams,
   InitializeResult,
