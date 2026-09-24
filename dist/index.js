@@ -106,7 +106,9 @@ var LspClient = class {
     this._isDaemonClient = true;
     return new Promise((resolve6, reject) => {
       let settled = false;
+      let timer;
       const settle = (fn) => {
+        clearTimeout(timer);
         if (!settled) {
           settled = true;
           fn();
@@ -135,7 +137,7 @@ var LspClient = class {
           this.options.onUnexpectedExit?.(null);
         }
       });
-      setTimeout(() => {
+      timer = setTimeout(() => {
         if (!settled) {
           socket.destroy();
           settle(() => reject(new Error("Timeout connecting to LSP daemon socket")));

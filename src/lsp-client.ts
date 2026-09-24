@@ -151,7 +151,9 @@ export class LspClient {
 
     return new Promise((resolve, reject) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const settle = (fn: () => void) => {
+        clearTimeout(timer);
         if (!settled) { settled = true; fn(); }
       };
 
@@ -184,8 +186,8 @@ export class LspClient {
         }
       });
 
-      // Timeout
-      setTimeout(() => {
+      // Timeout, cleared by settle() once the connect succeeds or fails
+      timer = setTimeout(() => {
         if (!settled) {
           socket.destroy();
           settle(() => reject(new Error("Timeout connecting to LSP daemon socket")));

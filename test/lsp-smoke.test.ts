@@ -13,6 +13,7 @@ import { LspManager, daemonScriptPath, getJdtlsDataDir } from "../src/lsp-manage
 
 const FAKE_LSP = fileURLToPath(new URL("./fixtures/fake-lsp.mjs", import.meta.url));
 const BUILT_DAEMON = fileURLToPath(new URL("../dist/lsp-daemon.js", import.meta.url));
+const pendingTimers = () => process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
 
 test("the daemon launches from the built dist/lsp-daemon.js, from the bundle and from source", () => {
   assert.equal(daemonScriptPath(new URL("../dist/index.js", import.meta.url).href), BUILT_DAEMON);
@@ -37,7 +38,9 @@ test("the built daemon serves a fake LSP server over its socket", { timeout: 20_
     // The daemon writes its pid file once the socket is listening.
     for (let i = 0; i < 100 && !existsSync(socketPath.replace(/\.sock$/, ".pid")); i++) await sleep(50);
     assert.equal(exited, false, "daemon exited during startup");
+    const timersBefore = pendingTimers();
     await client.start();
+    assert.equal(pendingTimers(), timersBefore, "connecting left its timeout timer pending");
     const uri = pathToFileURL(join(dir, "a.txt")).href;
     const hover = await client.sendRequest("textDocument/hover", { textDocument: { uri }, position: { line: 2, character: 5 } });
     assert.deepEqual(hover, { contents: { kind: "plaintext", value: "fake hover 2:5" } });
@@ -47,6 +50,18 @@ test("the built daemon serves a fake LSP server over its socket", { timeout: 20_
       daemon.kill("SIGTERM");
       await once(daemon, "exit");
     }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed daemon socket connect leaves no timer pending", { timeout: 5_000, skip: process.platform === "win32" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-lsp-nosock-"));
+  const client = new LspClient({ command: "unused", args: [], rootDir: dir, languageId: "fake", socketPath: join(dir, "missing.sock") });
+  try {
+    const timersBefore = pendingTimers();
+    await assert.rejects(client.start(), /Failed to connect to LSP daemon/);
+    assert.equal(pendingTimers(), timersBefore, "the failed connect left its timeout timer pending");
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

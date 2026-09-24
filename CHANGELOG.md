@@ -28,6 +28,7 @@
   (jdtls keys the data dir on the directory name alone).
 - The package now includes the full MIT `LICENSE` file. Fixes #14.
 - The README no longer lists a `/bemol` command, which this package does not ship.
+- Connecting to a shared daemon clears its 10s connect timeout, so the timer no longer holds the process open.
 
 ### Changed
 
