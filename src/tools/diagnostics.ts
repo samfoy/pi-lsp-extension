@@ -5,7 +5,7 @@
  * When `path` is omitted: returns all cached diagnostics across all running LSP servers.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { DiagnosticSeverity, type Diagnostic } from "vscode-languageserver-protocol";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateHead, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";

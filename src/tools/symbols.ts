@@ -2,7 +2,7 @@
  * lsp_symbols — List symbols in a file or search workspace symbols.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { SymbolKind, type DocumentSymbol, type SymbolInformation, type WorkspaceSymbol } from "vscode-languageserver-protocol";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateHead, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";

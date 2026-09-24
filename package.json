@@ -5,17 +5,32 @@
   "description": "Pi coding agent extension for LSP (Language Server Protocol) integration",
   "keywords": [
     "pi-package",
-    "extension"
+    "pi-extension",
+    "pi",
+    "lsp",
+    "language-server",
+    "tree-sitter"
   ],
   "license": "MIT",
+  "author": "Sam Painter",
   "repository": {
     "type": "git",
-    "url": "https://github.com/samfoy/pi-lsp-extension"
+    "url": "git+https://github.com/samfoy/pi-lsp-extension.git"
   },
+  "homepage": "https://github.com/samfoy/pi-lsp-extension#readme",
+  "bugs": {
+    "url": "https://github.com/samfoy/pi-lsp-extension/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "clean": "echo 'nothing to clean'",
-    "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "tsc --noEmit"
   },
   "pi": {
     "extensions": [
@@ -28,12 +43,15 @@
     "web-tree-sitter": "^0.24.7"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "typebox": "*"
   },
   "devDependencies": {
-    "typescript": "^5.5.0"
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-tui": "^0.87.1",
+    "@types/node": "^22.20.4",
+    "typebox": "1.3.27",
+    "typescript": "^5.9.3"
   }
 }

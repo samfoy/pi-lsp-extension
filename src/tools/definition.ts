@@ -2,7 +2,7 @@
  * lsp_definition — Go to the definition of a symbol.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { Location, LocationLink } from "vscode-languageserver-protocol";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";

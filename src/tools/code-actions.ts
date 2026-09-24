@@ -2,7 +2,7 @@
  * lsp_code_actions — Get available code actions (quick fixes, refactorings) at a position.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type {
   CodeAction,
   Command,

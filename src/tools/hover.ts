@@ -2,7 +2,7 @@
  * lsp_hover — Get type information and documentation at a position.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { Hover, MarkupContent } from "vscode-languageserver-protocol";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";

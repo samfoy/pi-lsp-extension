@@ -5,7 +5,7 @@
  * letting the LLM discover available methods, properties, and APIs.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type {
   CompletionItem,
   CompletionList,

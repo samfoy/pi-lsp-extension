@@ -7,7 +7,7 @@
  * - Dependency manifests
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateHead, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
