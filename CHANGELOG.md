@@ -10,8 +10,10 @@
   `Package subpath './node.js' is not defined by "exports"`. It now imports the `./node` subpath (#12),
   which resolves on both 3.17.5 and 3.18.x. Fixes #13.
 - Java: jdtls always receives `java.import.exclusions`, not only when Lombok is found. The list keeps
-  jdtls's own defaults and adds generated/output dirs (`build/`, `.gradle/`, `bin/`, `.bemol/`), so
-  transient dirs no longer poison the saved workspace snapshot.
+  jdtls's own defaults and adds the generated dirs `.gradle/` and `.bemol/`, so they no longer poison
+  the saved workspace snapshot. `build/` and `bin/` are not excluded: jdtls matches the globs against
+  absolute paths, so they would hide every project of a workspace that lives under such a dir. The
+  README shows how to set your own list through `initializationOptions`.
 - Java: a jdtls workspace corrupted by a previous session (`ObjectNotFoundException` while restoring
   the workspace tree) is repaired before launch. Only the resource-tree snapshots are removed and the
   JDT index is kept. The workspace data dir is located the same way as jdtls's launcher does it on

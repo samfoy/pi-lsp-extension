@@ -24,6 +24,10 @@ test("Java init options always carry import exclusions, keeping jdtls defaults",
   for (const d of ["**/node_modules/**", "**/.metadata/**", "**/archetype-resources/**", "**/META-INF/maven/**"]) {
     assert.ok(exclusions.includes(d), `keeps jdtls default ${d}`);
   }
+  // jdtls matches against absolute paths: these would hide a workspace that lives under /build/ or /bin/.
+  for (const d of ["**/build/**", "**/bin/**"]) {
+    assert.ok(!exclusions.includes(d), `does not exclude ${d}`);
+  }
 });
 
 function withFakeJdtlsWorkspace(log: string, fn: (dataDir: string, cwd: string) => void): void {

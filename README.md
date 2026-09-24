@@ -104,6 +104,35 @@ If your Java project uses [Lombok](https://projectlombok.org/), jdtls needs the 
 
 Run `/lsp-lombok` with no arguments to see which jar is currently configured.
 
+## Java Import Exclusions
+
+jdtls always receives `java.import.exclusions`: jdtls's own defaults (`**/node_modules/**`, `**/.metadata/**`, `**/archetype-resources/**`, `**/META-INF/maven/**`) plus the generated dirs `**/.bemol/**` and `**/.gradle/**`.
+
+To change the list, set `initializationOptions` for `java` in [`.pi-lsp.json`](#project-config). It replaces the extension's Java defaults, so list every pattern you want to keep. Lombok still works, because its `-javaagent` flag goes on the jdtls command line.
+
+```json
+{
+  "servers": {
+    "java": {
+      "command": "jdtls",
+      "initializationOptions": {
+        "settings": {
+          "java.import.exclusions": [
+            "**/node_modules/**",
+            "**/.metadata/**",
+            "**/archetype-resources/**",
+            "**/META-INF/maven/**",
+            "**/generated-sources/**"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+jdtls matches these globs against absolute paths, including the workspace root. A pattern like `**/build/**` therefore also matches every project when the workspace itself sits under a `build/` directory, and jdtls imports nothing.
+
 ## Project Config
 
 Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-project:
@@ -124,7 +153,7 @@ Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-
 | `autoStart` | Array of language IDs to start eagerly on session launch. Servers begin initializing in the background immediately — no need to wait for the first tool call. Ideal for slow servers like `jdtls`. |
 | `lombokJar` | Path to a Lombok jar (absolute or relative to project root), or `"auto"` to auto-detect in Brazil workspaces. Applied before auto-start so jdtls launches with the correct `-javaagent` flag. |
 | `autoInjectDiagnostics` | Controls whether LSP errors are auto-appended to `write`/`edit` tool results. `true` (default) enables for all languages, `false` disables entirely, or pass an array of language IDs (e.g. `["typescript"]`) to enable selectively. Disable for Java/Brazil workspaces where Lombok and dependency-chain false positives create noise. |
-| `servers` | Custom server configs keyed by language ID. Overrides the built-in defaults. Each entry has `command`, optional `args` (string array), and optional `env` (key-value pairs). |
+| `servers` | Custom server configs keyed by language ID. Overrides the built-in defaults. Each entry has `command`, optional `args` (string array), optional `env` (key-value pairs), optional `initializationOptions` (sent with `initialize`; see [Java Import Exclusions](#java-import-exclusions)), and optional `settings` (answers to `workspace/configuration`). |
 
 The config file is loaded once at session start. Changes require restarting the pi session.
 
