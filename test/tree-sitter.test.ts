@@ -2,12 +2,12 @@
  * Quick smoke test for the tree-sitter integration.
  * Exercises: parser-manager, symbol-extractor, workspace-index
  *
- * Run: npx tsx test-tree-sitter.ts
+ * Run: npm test (or: npx tsx test/tree-sitter.test.ts)
  */
 
-import { TreeSitterManager } from "./src/tree-sitter/parser-manager.js";
-import { extractSymbols, getNodeAtPosition, findDefinition, getSyntaxErrors, getSignatureText, getEnclosingDeclaration } from "./src/tree-sitter/symbol-extractor.js";
-import { WorkspaceIndex } from "./src/tree-sitter/workspace-index.js";
+import { TreeSitterManager } from "../src/tree-sitter/parser-manager.js";
+import { extractSymbols, getNodeAtPosition, findDefinition, getSyntaxErrors, getSignatureText, getEnclosingDeclaration } from "../src/tree-sitter/symbol-extractor.js";
+import { WorkspaceIndex } from "../src/tree-sitter/workspace-index.js";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -367,7 +367,7 @@ export function newHelper(): void {}
   console.log("\n🪟 Windows path regression (fileURLToPath vs .pathname)");
 
   const moduleDir = fileURLToPath(new URL(".", import.meta.url));
-  const wasmPath = resolve(moduleDir, "node_modules/web-tree-sitter/tree-sitter.wasm");
+  const wasmPath = resolve(moduleDir, "../node_modules/web-tree-sitter/tree-sitter.wasm");
 
   assert(existsSync(wasmPath), `wasm resolves to a real file: ${wasmPath}`);
 
@@ -377,7 +377,7 @@ export function newHelper(): void {}
   assert(!hasDriveDoubling, `path has no doubled drive letter: ${wasmPath}`);
 
   // Also verify the grammar dir resolves cleanly to real .wasm grammar files.
-  const grammarPath = resolve(moduleDir, "node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm");
+  const grammarPath = resolve(moduleDir, "../node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm");
   assert(existsSync(grammarPath), `grammar wasm resolves to a real file: ${grammarPath}`);
 
   // ── Cleanup ──

@@ -1,13 +1,13 @@
 /**
  * Tests for structural search & rewrite: pattern-compiler, search-engine, rewrite-engine.
  *
- * Run: npx tsx test-structural-search.ts
+ * Run: npm test (or: npx tsx test/structural-search.test.ts)
  */
 
-import { TreeSitterManager } from "./src/tree-sitter/parser-manager.js";
-import { compilePattern, type CompiledPattern } from "./src/tree-sitter/pattern-compiler.js";
-import { searchFiles, collectFilesByLanguage } from "./src/tree-sitter/search-engine.js";
-import { computeRewrites, applyRewrites, substituteCaptures } from "./src/tree-sitter/rewrite-engine.js";
+import { TreeSitterManager } from "../src/tree-sitter/parser-manager.js";
+import { compilePattern, type CompiledPattern } from "../src/tree-sitter/pattern-compiler.js";
+import { searchFiles, collectFilesByLanguage } from "../src/tree-sitter/search-engine.js";
+import { computeRewrites, applyRewrites, substituteCaptures } from "../src/tree-sitter/rewrite-engine.js";
 import { writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
