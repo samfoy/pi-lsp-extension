@@ -7,7 +7,9 @@
 
 import { resolve, join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import { spawn as spawnChild } from "node:child_process";
 import { LspClient } from "./lsp-client.js";
 import { type WorkspaceProvider, DefaultWorkspaceProvider } from "./workspace-provider.js";
@@ -171,17 +173,114 @@ export class LspManager {
     return null;
   }
 
-  /** Build initializationOptions for Java (jdtls) with Lombok support */
-  private getJavaInitializationOptions(): Record<string, unknown> | undefined {
+  /** Build initializationOptions for Java (jdtls) with Lombok and import exclusions */
+  private getJavaInitializationOptions(): Record<string, unknown> {
     const lombokJar = this.findLombokJar();
-    if (!lombokJar) return undefined;
 
-    // jdtls expects flat dotted keys in settings, not nested objects
-    return {
-      settings: {
-        "java.jdt.ls.vmargs": `-javaagent:${lombokJar}`,
-      },
+    // Always send import exclusions so .bemol/ codegen dirs never enter the
+    // Eclipse resource tree. Per-package .bemol/ dirs are transient symlinks
+    // that get regenerated/deleted between sessions — any reference in the
+    // saved snapshot causes ObjectNotFoundException on next startup.
+    // Cross-package navigation still works because bemol-extension feeds the
+    // real package paths to jdtls via LSP_WORKSPACE_FOLDERS before LSP starts.
+    const settings: Record<string, unknown> = {
+      "java.import.exclusions": [
+        "**/.bemol/**",
+        "**/build/**",
+        "**/.gradle/**",
+        "**/node_modules/**",
+        "**/bin/**",
+      ],
     };
+
+    if (lombokJar) {
+      settings["java.jdt.ls.vmargs"] = `-javaagent:${lombokJar}`;
+    }
+
+    return { settings };
+  }
+
+  /**
+   * Compute the jdtls workspace cache directory for a given working directory.
+   * jdtls hashes basename(cwd) with SHA-1 to produce the dir name under ~/.cache/jdtls/.
+   */
+  private getJdtlsCacheDir(cwd: string): string {
+    const base = cwd.split("/").filter(Boolean).pop() ?? "";
+    const hash = createHash("sha1").update(base).digest("hex");
+    return join(homedir(), ".cache", "jdtls", `jdtls-${hash}`);
+  }
+
+  /**
+   * Pre-launch self-heal for Java/jdtls workspace corruption.
+   *
+   * jdtls saves the Eclipse resource tree to rotating numbered snapshots
+   * (e.g. `1.snap`) in org.eclipse.core.resources/. When .bemol/ per-package
+   * dirs are regenerated or deleted between sessions, the saved tree has stale
+   * paths, causing ResourcesPlugin.start() to throw ObjectNotFoundException and
+   * preventing jdtls from initializing at all.
+   *
+   * Detects the crash signature in .metadata/.log and wipes only the fragile
+   * snapshot/marker files (~KB–MB). The 900 MB+ JDT index is preserved.
+   */
+  private recoverCorruptJavaWorkspace(cwd: string, notify?: (msg: string) => void): void {
+    const cacheDir = this.getJdtlsCacheDir(cwd);
+    const logPath = join(cacheDir, ".metadata", ".log");
+    if (!existsSync(logPath)) return;
+
+    let log = "";
+    try {
+      // Read last 32 KB — crash signature is always near the end
+      const buf = Buffer.alloc(32768);
+      const fd = openSync(logPath, "r");
+      const stat = fstatSync(fd);
+      const offset = Math.max(0, stat.size - 32768);
+      readSync(fd, buf, 0, 32768, offset);
+      closeSync(fd);
+      log = buf.toString("utf-8");
+    } catch {
+      return;
+    }
+
+    const CRASH_PATTERN = /ObjectNotFoundException|Could not (?:read|restore) workspace tree|Exception in org\.eclipse\.core\.resources\.ResourcesPlugin\.start/;
+    if (!CRASH_PATTERN.test(log)) return;
+
+    // Wipe fragile snapshot/marker files under org.eclipse.core.resources/
+    const resDir = join(cacheDir, ".metadata", ".plugins", "org.eclipse.core.resources");
+    if (!existsSync(resDir)) return;
+
+    const wiped: string[] = [];
+
+    const wipePatternsIn = (dir: string) => {
+      if (!existsSync(dir)) return;
+      try {
+        for (const entry of readdirSync(dir)) {
+          if (/\.snap$|\.tree$/.test(entry)) {
+            const p = join(dir, entry);
+            try { unlinkSync(p); wiped.push(p); } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    };
+
+    // Top-level snaps (the rotating numbered ones, e.g. 1.snap)
+    wipePatternsIn(resDir);
+    // .root snaps
+    wipePatternsIn(join(resDir, ".root"));
+    // Per-project snaps
+    const projectsDir = join(resDir, ".projects");
+    if (existsSync(projectsDir)) {
+      try {
+        for (const proj of readdirSync(projectsDir)) {
+          wipePatternsIn(join(projectsDir, proj));
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (wiped.length > 0) {
+      const msg = `[jdtls] Auto-recovered corrupt workspace — wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
+      process.stderr.write(msg + "\n");
+      notify?.(msg);
+    }
   }
 
   /** Get all configured languages */
@@ -359,6 +458,17 @@ export class LspManager {
     const stateDir = this._workspace.stateDir;
     const folders = this._workspace.getWorkspaceFolders();
     const workspaceFolders = folders.length > 0 ? folders : undefined;
+
+    // For Java, run pre-launch workspace recovery before anything else.
+    // This silently wipes corrupt snapshot files if the log contains the
+    // ObjectNotFoundException / SaveManager crash signature, letting jdtls
+    // rebuild cleanly without losing the heavy JDT index.
+    if (languageId === "java") {
+      this.recoverCorruptJavaWorkspace(
+        this.rootDir,
+        (msg) => this._callbacks.onServerError?.(languageId, msg),
+      );
+    }
 
     // Build language-specific initializationOptions (e.g. Lombok for Java)
     // Use config-level initializationOptions if provided, otherwise fall back to language-specific defaults
