@@ -5,9 +5,9 @@
  * Uses a WorkspaceProvider for workspace detection, multi-root folders, and daemon state.
  */
 
-import { resolve, join, dirname, basename } from "node:path";
+import { resolve, join, dirname, basename, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync, lstatSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { spawn as spawnChild } from "node:child_process";
@@ -256,36 +256,39 @@ export class LspManager {
     const CRASH_PATTERN = /ObjectNotFoundException|Could not (?:read|restore) workspace tree|Exception in org\.eclipse\.core\.resources\.ResourcesPlugin\.start/;
     if (!CRASH_PATTERN.test(log)) return;
 
-    // Wipe fragile snapshot/marker files under org.eclipse.core.resources/
+    // Wipe fragile snapshot/marker files under org.eclipse.core.resources/, and
+    // only if that dir really lies inside the data dir once symlinks are resolved.
     const resDir = join(cacheDir, ".metadata", ".plugins", "org.eclipse.core.resources");
-    if (!existsSync(resDir)) return;
+    try {
+      if (!realpathSync(resDir).startsWith(realpathSync(cacheDir) + sep)) return;
+    } catch {
+      return;
+    }
 
-    const wiped: string[] = [];
-
-    const wipePatternsIn = (dir: string) => {
-      if (!existsSync(dir)) return;
-      try {
-        for (const entry of readdirSync(dir)) {
-          if (/\.snap$|\.tree$/.test(entry)) {
-            const p = join(dir, entry);
-            try { unlinkSync(p); wiped.push(p); } catch { /* ignore */ }
-          }
-        }
-      } catch { /* ignore */ }
+    // lstat, so symlinks are never walked into or deleted through.
+    const lstatOf = (p: string) => lstatSync(p, { throwIfNoEntry: false });
+    const isRealDir = (p: string) => lstatOf(p)?.isDirectory() === true;
+    const realSubdirs = (dir: string): string[] => {
+      try { return readdirSync(dir).map((e) => join(dir, e)).filter(isRealDir); } catch { return []; }
     };
 
-    // Top-level snaps (the rotating numbered ones, e.g. 1.snap)
-    wipePatternsIn(resDir);
-    // .root snaps
-    wipePatternsIn(join(resDir, ".root"));
-    // Per-project snaps
+    // Top-level snaps (the rotating numbered ones, e.g. 1.snap), .root, and each project.
     const projectsDir = join(resDir, ".projects");
-    if (existsSync(projectsDir)) {
-      try {
-        for (const proj of readdirSync(projectsDir)) {
-          wipePatternsIn(join(projectsDir, proj));
-        }
-      } catch { /* ignore */ }
+    const dirs = [
+      resDir,
+      ...[join(resDir, ".root")].filter(isRealDir),
+      ...(isRealDir(projectsDir) ? realSubdirs(projectsDir) : []),
+    ];
+
+    const wiped: string[] = [];
+    for (const dir of dirs) {
+      let entries: string[];
+      try { entries = readdirSync(dir); } catch { continue; }
+      for (const entry of entries) {
+        const p = join(dir, entry);
+        if (!/\.snap$|\.tree$/.test(entry) || lstatOf(p)?.isFile() !== true) continue;
+        try { unlinkSync(p); wiped.push(p); } catch { /* ignore */ }
+      }
     }
 
     if (wiped.length > 0) {

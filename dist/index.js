@@ -7,9 +7,9 @@ import {
 import { DiagnosticSeverity as DiagnosticSeverity2 } from "vscode-languageserver-protocol";
 
 // src/lsp-manager.ts
-import { resolve, join, basename } from "node:path";
+import { resolve, join, basename, sep } from "node:path";
 import { fileURLToPath, pathToFileURL as pathToFileURL2 } from "node:url";
-import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync, lstatSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { spawn as spawnChild } from "node:child_process";
@@ -575,33 +575,42 @@ var LspManager = class _LspManager {
     const CRASH_PATTERN = /ObjectNotFoundException|Could not (?:read|restore) workspace tree|Exception in org\.eclipse\.core\.resources\.ResourcesPlugin\.start/;
     if (!CRASH_PATTERN.test(log)) return;
     const resDir = join(cacheDir, ".metadata", ".plugins", "org.eclipse.core.resources");
-    if (!existsSync(resDir)) return;
-    const wiped = [];
-    const wipePatternsIn = (dir) => {
-      if (!existsSync(dir)) return;
+    try {
+      if (!realpathSync(resDir).startsWith(realpathSync(cacheDir) + sep)) return;
+    } catch {
+      return;
+    }
+    const lstatOf = (p) => lstatSync(p, { throwIfNoEntry: false });
+    const isRealDir = (p) => lstatOf(p)?.isDirectory() === true;
+    const realSubdirs = (dir) => {
       try {
-        for (const entry of readdirSync(dir)) {
-          if (/\.snap$|\.tree$/.test(entry)) {
-            const p = join(dir, entry);
-            try {
-              unlinkSync(p);
-              wiped.push(p);
-            } catch {
-            }
-          }
-        }
+        return readdirSync(dir).map((e) => join(dir, e)).filter(isRealDir);
       } catch {
+        return [];
       }
     };
-    wipePatternsIn(resDir);
-    wipePatternsIn(join(resDir, ".root"));
     const projectsDir = join(resDir, ".projects");
-    if (existsSync(projectsDir)) {
+    const dirs = [
+      resDir,
+      ...[join(resDir, ".root")].filter(isRealDir),
+      ...isRealDir(projectsDir) ? realSubdirs(projectsDir) : []
+    ];
+    const wiped = [];
+    for (const dir of dirs) {
+      let entries;
       try {
-        for (const proj of readdirSync(projectsDir)) {
-          wipePatternsIn(join(projectsDir, proj));
-        }
+        entries = readdirSync(dir);
       } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const p = join(dir, entry);
+        if (!/\.snap$|\.tree$/.test(entry) || lstatOf(p)?.isFile() !== true) continue;
+        try {
+          unlinkSync(p);
+          wiped.push(p);
+        } catch {
+        }
       }
     }
     if (wiped.length > 0) {

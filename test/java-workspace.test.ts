@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JAVA_IMPORT_EXCLUSIONS, LspManager, getJdtlsDataDir } from "../src/lsp-manager.js";
@@ -60,6 +60,52 @@ test("corrupt jdtls workspace: snapshots are wiped, the JDT index is kept", { sk
     assert.equal(messages.length, 1);
     assert.match(messages[0], /wiped 3 snapshot file/);
   });
+});
+
+const CRASH_LOG = "org.eclipse.core.internal.resources.ObjectNotFoundException: Resource '/x' does not exist.\n";
+
+/** A dir outside the jdtls data dir holding snapshot-named files recovery must not touch. */
+function outsideDirWithSnapshots(): { dir: string; files: string[] } {
+  const dir = mkdtempSync(join(tmpdir(), "pi-lsp-outside-"));
+  const files = ["1.snap", ".root/2.tree", ".projects/p/3.snap"].map((f) => join(dir, f));
+  mkdirSync(join(dir, ".root"));
+  mkdirSync(join(dir, ".projects", "p"), { recursive: true });
+  for (const f of files) writeFileSync(f, "outside");
+  return { dir, files };
+}
+
+test("corrupt jdtls workspace: a symlinked project dir pointing outside is not followed", { skip: process.platform !== "linux" }, () => {
+  const outside = outsideDirWithSnapshots();
+  try {
+    withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
+      const res = join(dataDir, ".metadata", ".plugins", "org.eclipse.core.resources");
+      symlinkSync(outside.dir, join(res, ".projects", "linked"));
+      const messages: string[] = [];
+      (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (m: string) => messages.push(m));
+      for (const f of outside.files) assert.ok(existsSync(f), `outside file kept: ${f}`);
+      assert.equal(existsSync(join(res, ".projects", "p", "3.snap")), false);
+      assert.match(messages[0], /wiped 3 snapshot file/);
+    });
+  } finally {
+    rmSync(outside.dir, { recursive: true, force: true });
+  }
+});
+
+test("corrupt jdtls workspace: a symlinked resources dir pointing outside is left alone", { skip: process.platform !== "linux" }, () => {
+  const outside = outsideDirWithSnapshots();
+  try {
+    withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
+      const res = join(dataDir, ".metadata", ".plugins", "org.eclipse.core.resources");
+      rmSync(res, { recursive: true });
+      symlinkSync(outside.dir, res);
+      const messages: string[] = [];
+      (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (m: string) => messages.push(m));
+      for (const f of outside.files) assert.ok(existsSync(f), `outside file kept: ${f}`);
+      assert.deepEqual(messages, []);
+    });
+  } finally {
+    rmSync(outside.dir, { recursive: true, force: true });
+  }
 });
 
 test("healthy jdtls workspace: nothing is wiped", { skip: process.platform !== "linux" }, () => {

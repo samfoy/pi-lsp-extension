@@ -15,7 +15,9 @@
 - Java: a jdtls workspace corrupted by a previous session (`ObjectNotFoundException` while restoring
   the workspace tree) is repaired before launch. Only the resource-tree snapshots are removed and the
   JDT index is kept. The workspace data dir is located the same way as jdtls's launcher does it on
-  Linux, macOS and Windows. Recovery never runs underneath a live shared daemon.
+  Linux, macOS and Windows. Recovery never deletes anything outside the data dir: it does not
+  follow symlinks, and does nothing if the resource-tree dir resolves elsewhere.
+  Recovery never runs underneath a live shared daemon.
 - The package now includes the full MIT `LICENSE` file. Fixes #14.
 
 ### Changed
