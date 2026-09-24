@@ -539,8 +539,9 @@ export class LspManager {
     // No existing daemon — spawn one (or start direct if no state directory)
     this._callbacks.onServerStart?.(languageId, config.command);
 
-    // Only before launching a new jdtls, never under a live shared daemon: wipe
-    // corrupt snapshot files if the log has the crash signature, keeping the index.
+    // Runs only when this session launches its own jdtls (no shared daemon answered). Another
+    // jdtls can still use the data dir: a live daemon that refused the connection, a session
+    // without a daemon, or a workspace with the same basename. Keeps the JDT index.
     if (languageId === "java") {
       this.recoverCorruptJavaWorkspace(
         this.rootDir,

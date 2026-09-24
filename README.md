@@ -45,6 +45,8 @@ npm run build        # bundles src/ into dist/ (committed, so git installs need 
 pi -e .              # or: pi install ./
 ```
 
+Running from source (`pi -e ./src/index.ts`) also needs `npm run build` first: the shared daemon always runs as `dist/lsp-daemon.js`, so rebuild after changing `src/lsp-daemon.ts`.
+
 `npm run check` typechecks, `npm test` runs the test suites. Rebuild and commit `dist/` with any source change; CI fails if it is stale.
 
 ## Supported Languages
@@ -74,7 +76,6 @@ Add more at runtime:
 | `/lsp-restart <lang>` | Restart an LSP server (kills daemon, re-initializes) |
 | `/lsp-config <lang> <cmd> [args]` | Configure a language server |
 | `/lsp-lombok [path]` | Set Lombok jar path for Java (or show current) |
-| `/bemol [run\|watch\|stop\|status]` | Manage bemol (Brazil workspaces) |
 
 ## How it Works
 
@@ -165,7 +166,7 @@ The config file is loaded once at session start. Changes require restarting the 
 }
 ```
 
-This triggers bemol + jdtls startup as soon as the session begins, so by the time you need `lsp_diagnostics` or `lsp_hover`, the server is already warm.
+This starts jdtls as soon as the session begins, so by the time you need `lsp_diagnostics` or `lsp_hover`, the server is already warm.
 
 ## Architecture
 

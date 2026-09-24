@@ -21,8 +21,13 @@
   follow symlinks, and does nothing if the resource-tree dir resolves elsewhere. After a repair the
   jdtls log is renamed to `.log.pi-lsp-recovered-<timestamp>`, so the same crash is repaired once,
   not on every launch. A repair shows as an info notice, not as "LSP: java failed".
-  Recovery never runs underneath a live shared daemon.
+  Recovery runs only right before this session launches its own jdtls, so it is skipped whenever the
+  session connects to a running shared daemon. It does not check whether another jdtls is using the
+  data dir. That can happen when a daemon's PID is alive but connecting to it fails, when another
+  session runs jdtls without a shared daemon, or when another workspace has the same directory name
+  (jdtls keys the data dir on the directory name alone).
 - The package now includes the full MIT `LICENSE` file. Fixes #14.
+- The README no longer lists a `/bemol` command, which this package does not ship.
 
 ### Changed
 
