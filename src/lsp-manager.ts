@@ -7,7 +7,7 @@
 
 import { resolve, join, dirname, basename, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync, lstatSync, realpathSync, renameSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { spawn as spawnChild } from "node:child_process";
@@ -63,6 +63,8 @@ export interface LspManagerCallbacks {
   onServerStart?: (languageId: string, command: string) => void;
   onServerReady?: (languageId: string) => void;
   onServerError?: (languageId: string, error: string) => void;
+  /** Informational message about a server that is not a failure (e.g. a workspace repair) */
+  onServerNotice?: (languageId: string, message: string) => void;
   onServerCrash?: (languageId: string, restarting: boolean, attempt: number) => void;
 }
 
@@ -233,6 +235,7 @@ export class LspManager {
    *
    * Detects the crash signature in .metadata/.log and wipes only the fragile
    * snapshot/marker files (~KB–MB). The (often very large) JDT index is preserved.
+   * After a wipe the log is rotated, so the same crash is not repaired twice.
    */
   private recoverCorruptJavaWorkspace(cwd: string, notify?: (msg: string) => void): void {
     const cacheDir = getJdtlsDataDir(cwd);
@@ -244,10 +247,12 @@ export class LspManager {
       // Read last 32 KB — crash signature is always near the end
       const buf = Buffer.alloc(32768);
       const fd = openSync(logPath, "r");
-      const stat = fstatSync(fd);
-      const offset = Math.max(0, stat.size - 32768);
-      readSync(fd, buf, 0, 32768, offset);
-      closeSync(fd);
+      try {
+        const offset = Math.max(0, fstatSync(fd).size - 32768);
+        readSync(fd, buf, 0, 32768, offset);
+      } finally {
+        closeSync(fd);
+      }
       log = buf.toString("utf-8");
     } catch {
       return;
@@ -292,6 +297,9 @@ export class LspManager {
     }
 
     if (wiped.length > 0) {
+      // Eclipse appends to .log, so the old crash signature would trigger a wipe on every launch.
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      try { renameSync(logPath, `${logPath}.pi-lsp-recovered-${stamp}`); } catch { /* ignore */ }
       const msg = `[jdtls] Auto-recovered corrupt workspace — wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
       process.stderr.write(msg + "\n");
       notify?.(msg);
@@ -526,7 +534,7 @@ export class LspManager {
     if (languageId === "java") {
       this.recoverCorruptJavaWorkspace(
         this.rootDir,
-        (msg) => this._callbacks.onServerError?.(languageId, msg),
+        (msg) => this._callbacks.onServerNotice?.(languageId, msg),
       );
     }
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JAVA_IMPORT_EXCLUSIONS, LspManager, getJdtlsDataDir } from "../src/lsp-manager.js";
@@ -106,6 +106,40 @@ test("corrupt jdtls workspace: a symlinked resources dir pointing outside is lef
   } finally {
     rmSync(outside.dir, { recursive: true, force: true });
   }
+});
+
+test("corrupt jdtls workspace: recovery rotates the log, so the next launch wipes nothing", { skip: process.platform !== "linux" }, () => {
+  withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
+    const messages: string[] = [];
+    const recover = () => (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (m: string) => messages.push(m));
+    recover();
+    const meta = join(dataDir, ".metadata");
+    assert.equal(existsSync(join(meta, ".log")), false);
+    const rotated = readdirSync(meta).filter((f) => f.startsWith(".log.pi-lsp-recovered-"));
+    assert.equal(rotated.length, 1);
+    assert.equal(readFileSync(join(meta, rotated[0]), "utf-8"), CRASH_LOG);
+
+    // The recovered launch saves healthy snapshots and appends to .log, as Eclipse does.
+    const res = join(meta, ".plugins", "org.eclipse.core.resources");
+    writeFileSync(join(res, "1.snap"), "healthy");
+    appendFileSync(join(meta, ".log"), "!ENTRY org.eclipse.jdt.ls.core 1 0 Initialized\n");
+    recover();
+    assert.equal(readFileSync(join(res, "1.snap"), "utf-8"), "healthy");
+    assert.equal(messages.length, 1);
+  });
+});
+
+test("a jdtls log that fails to read does not leak its file descriptor", { skip: process.platform !== "linux" }, () => {
+  withFakeJdtlsWorkspace("", (dataDir, cwd) => {
+    // A directory opens fine on Linux, then readSync throws EISDIR.
+    const log = join(dataDir, ".metadata", ".log");
+    rmSync(log);
+    mkdirSync(log);
+    const openFds = () => readdirSync("/proc/self/fd").length;
+    const before = openFds();
+    (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd);
+    assert.equal(openFds(), before);
+  });
 });
 
 test("healthy jdtls workspace: nothing is wiped", { skip: process.platform !== "linux" }, () => {

@@ -16,7 +16,9 @@
   the workspace tree) is repaired before launch. Only the resource-tree snapshots are removed and the
   JDT index is kept. The workspace data dir is located the same way as jdtls's launcher does it on
   Linux, macOS and Windows. Recovery never deletes anything outside the data dir: it does not
-  follow symlinks, and does nothing if the resource-tree dir resolves elsewhere.
+  follow symlinks, and does nothing if the resource-tree dir resolves elsewhere. After a repair the
+  jdtls log is renamed to `.log.pi-lsp-recovered-<timestamp>`, so the same crash is repaired once,
+  not on every launch. A repair shows as an info notice, not as "LSP: java failed".
   Recovery never runs underneath a live shared daemon.
 - The package now includes the full MIT `LICENSE` file. Fixes #14.
 

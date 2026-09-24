@@ -9,7 +9,7 @@ import { DiagnosticSeverity as DiagnosticSeverity2 } from "vscode-languageserver
 // src/lsp-manager.ts
 import { resolve, join, basename, sep } from "node:path";
 import { fileURLToPath, pathToFileURL as pathToFileURL2 } from "node:url";
-import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync, lstatSync, realpathSync, renameSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { spawn as spawnChild } from "node:child_process";
@@ -555,6 +555,7 @@ var LspManager = class _LspManager {
    *
    * Detects the crash signature in .metadata/.log and wipes only the fragile
    * snapshot/marker files (~KB–MB). The (often very large) JDT index is preserved.
+   * After a wipe the log is rotated, so the same crash is not repaired twice.
    */
   recoverCorruptJavaWorkspace(cwd, notify) {
     const cacheDir = getJdtlsDataDir(cwd);
@@ -564,10 +565,12 @@ var LspManager = class _LspManager {
     try {
       const buf = Buffer.alloc(32768);
       const fd = openSync(logPath, "r");
-      const stat3 = fstatSync(fd);
-      const offset = Math.max(0, stat3.size - 32768);
-      readSync(fd, buf, 0, 32768, offset);
-      closeSync(fd);
+      try {
+        const offset = Math.max(0, fstatSync(fd).size - 32768);
+        readSync(fd, buf, 0, 32768, offset);
+      } finally {
+        closeSync(fd);
+      }
       log = buf.toString("utf-8");
     } catch {
       return;
@@ -614,6 +617,11 @@ var LspManager = class _LspManager {
       }
     }
     if (wiped.length > 0) {
+      const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+      try {
+        renameSync(logPath, `${logPath}.pi-lsp-recovered-${stamp}`);
+      } catch {
+      }
       const msg = `[jdtls] Auto-recovered corrupt workspace \u2014 wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
       process.stderr.write(msg + "\n");
       notify?.(msg);
@@ -805,7 +813,7 @@ var LspManager = class _LspManager {
     if (languageId === "java") {
       this.recoverCorruptJavaWorkspace(
         this.rootDir,
-        (msg) => this._callbacks.onServerError?.(languageId, msg)
+        (msg) => this._callbacks.onServerNotice?.(languageId, msg)
       );
     }
     if (stateDir) {
@@ -4542,6 +4550,9 @@ function lspExtension(pi) {
     },
     onServerError: (languageId, _error) => {
       setLspStatus("error", `LSP: ${languageId} failed`);
+    },
+    onServerNotice: (_languageId, message) => {
+      withLatestCtx((ctx) => ctx.ui.notify(message, "info"));
     },
     onServerCrash: (languageId, restarting, attempt) => {
       if (restarting) {
