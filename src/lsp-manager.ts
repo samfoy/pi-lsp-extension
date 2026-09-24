@@ -6,7 +6,7 @@
  */
 
 import { resolve, join, dirname, basename } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -653,20 +653,8 @@ export class LspManager {
     initializationOptions?: Record<string, unknown>,
   ): Promise<void> {
     const socketPath = this.getSocketPath(languageId)!;
-    const daemonScript = new URL("./lsp-daemon.ts", import.meta.url).pathname;
-    const launcherScript = new URL("./lsp-daemon-launcher.cjs", import.meta.url).pathname;
-
-    // Resolve jiti from the running process's module context
-    let jitiPath: string;
-    try {
-      jitiPath = require.resolve("jiti");
-    } catch {
-      try {
-        jitiPath = require.resolve("@mariozechner/jiti");
-      } catch {
-        throw new Error("Cannot resolve jiti for daemon spawn — jiti not found in module path");
-      }
-    }
+    // Built next to this bundle (dist/lsp-daemon.js); plain JS, so node runs it directly.
+    const daemonScript = fileURLToPath(new URL("./lsp-daemon.js", import.meta.url));
 
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
@@ -689,7 +677,7 @@ export class LspManager {
 
     const child = spawnChild(
       process.execPath, // node
-      [launcherScript, jitiPath, daemonScript, socketPath, config.command, ...effectiveArgs],
+      [daemonScript, socketPath, config.command, ...effectiveArgs],
       {
         cwd: this.rootDir,
         env,

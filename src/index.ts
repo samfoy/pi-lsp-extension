@@ -16,8 +16,8 @@
  * resolving a symbol name to its position automatically.
  *
  * Usage:
- *   1. npm install in this directory
- *   2. Add to pi via settings.json extensions, or: pi -e ./src/index.ts
+ *   1. npm install && npm run build in this directory (bundles to dist/)
+ *   2. pi install ./ (or pi -e .)
  *   3. LSP servers start lazily when you first use a tool on a file
  */
 

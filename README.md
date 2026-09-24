@@ -1,6 +1,6 @@
 # pi-lsp-extension
 
-A [pi](https://github.com/mariozechner/pi-mono) coding agent extension that integrates Language Server Protocol (LSP) servers, giving the LLM access to the same language intelligence that powers your IDE.
+A [pi](https://github.com/earendil-works/pi) coding agent extension that integrates Language Server Protocol (LSP) servers, giving the LLM access to the same language intelligence that powers your IDE.
 
 ## Tools
 
@@ -30,24 +30,22 @@ After a successful `write` or `edit`, if an LSP server is already running for th
 ## Installation
 
 ```bash
+pi install npm:pi-lsp-extension
+# or straight from GitHub
+pi install git:github.com/samfoy/pi-lsp-extension
+```
+
+For local development:
+
+```bash
 git clone https://github.com/samfoy/pi-lsp-extension.git
 cd pi-lsp-extension
 npm install
+npm run build        # bundles src/ into dist/ (committed, so git installs need no build)
+pi -e .              # or: pi install ./
 ```
 
-Add to your pi `settings.json`:
-
-```json
-{
-  "extensions": ["/path/to/pi-lsp-extension/src/index.ts"]
-}
-```
-
-Or run directly:
-
-```bash
-pi -e /path/to/pi-lsp-extension/src/index.ts
-```
+`npm run check` typechecks, `npm test` runs the test suites. Rebuild and commit `dist/` with any source change; CI fails if it is stale.
 
 ## Supported Languages
 
@@ -148,11 +146,9 @@ src/
 ├── lsp-client.ts         # JSON-RPC client (stdio + socket modes)
 ├── lsp-manager.ts        # Server lifecycle, per-language instances
 ├── file-sync.ts          # didOpen/didChange tracking
-├── lsp-daemon.ts         # Background daemon for shared servers
-├── lsp-daemon-launcher.cjs
-├── bemol.ts              # Brazil workspace support
-├── locks.ts              # File-based locking for daemon coordination
+├── lsp-daemon.ts         # Background daemon for shared servers (built to dist/lsp-daemon.js)
 ├── resolve-provider.ts   # LSP vs tree-sitter provider selection
+├── workspace-provider.ts # Workspace detection / daemon state interface
 ├── shared/
 │   ├── constants.ts      # Skip dirs, file size limits
 │   ├── debug.ts          # Debug logger (PI_LSP_DEBUG=1)
