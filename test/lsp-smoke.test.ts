@@ -73,7 +73,11 @@ test("a FIFO at the jdtls log does not block the launch", { timeout: 20_000, ski
   try {
     const cwd = join(home, "my-project");
     const log = join(getJdtlsDataDir(cwd, process.platform, { ...process.env, HOME: home }), ".metadata", ".log");
-    mkdirSync(dirname(log), { recursive: true });
+    // The resource-tree dir must exist, or the data-dir gate returns before the log is opened.
+    const resDir = join(dirname(log), ".plugins", "org.eclipse.core.resources");
+    mkdirSync(resDir, { recursive: true });
+    const snap = join(resDir, "1.snap");
+    writeFileSync(snap, "snapshot");
     try { execFileSync("mkfifo", [log]); } catch { return t.skip("mkfifo is not available"); }
     // In a child: a blocking open would freeze this runner's own thread, timeout included.
     const code = `const { LspManager } = await import("./src/lsp-manager.ts");
@@ -83,6 +87,8 @@ test("a FIFO at the jdtls log does not block the launch", { timeout: 20_000, ski
     });
     assert.equal(run.signal, null, "recovery blocked opening the FIFO");
     assert.equal(run.status, 0, run.stderr);
+    // The FIFO is never read, so no crash signature is found and nothing is wiped.
+    assert.ok(existsSync(snap), "recovery wiped 1.snap without reading a crash signature");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

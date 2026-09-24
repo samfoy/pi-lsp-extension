@@ -55,3 +55,7 @@
   and smoke tests that run the built daemon against a fake LSP server) and `npm run build` scripts
   replace the `echo` placeholders.
 - CI checks types, tests, the build, and that `dist/` is up to date. Publishing uses npm trusted publishing.
+
+### Known issues
+
+- Shutting the session down while a language server is still starting can leave that server process running.
