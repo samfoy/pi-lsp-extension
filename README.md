@@ -189,4 +189,4 @@ src/
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Sam Painter
