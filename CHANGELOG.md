@@ -34,6 +34,10 @@
 - The package now includes the full MIT `LICENSE` file. Fixes #14.
 - The README no longer lists a `/bemol` command, which this package does not ship.
 - Connecting to a shared daemon clears its 10s connect timeout, so the timer no longer holds the process open.
+- Tools no longer show "LSP: workspace setup failed" each time they start a server. The workspace
+  setup reports its real result and runs once per session, not once per server start. The
+  tree-sitter fallback in `lsp_definition` and `lsp_symbols` also builds the workspace index once
+  instead of walking the project on every lookup.
 
 ### Changed
 

@@ -10,6 +10,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { LspClient } from "../src/lsp-client.js";
 import { LspManager, daemonScriptPath, getJdtlsDataDir } from "../src/lsp-manager.js";
+import lspExtension from "../src/index.js";
 
 const FAKE_LSP = fileURLToPath(new URL("./fixtures/fake-lsp.mjs", import.meta.url));
 const REPO = fileURLToPath(new URL("..", import.meta.url));
@@ -84,6 +85,45 @@ test("a FIFO at the jdtls log does not block the launch", { timeout: 20_000, ski
     assert.equal(run.status, 0, run.stderr);
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("tools start servers through the extension with one successful workspace setup", { timeout: 20_000, skip: process.platform === "win32" }, async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-lsp-ext-"));
+  const fake = { command: process.execPath, args: [FAKE_LSP] };
+  writeFileSync(join(cwd, ".pi-lsp.json"), JSON.stringify({ servers: { typescript: fake, python: fake } }));
+  writeFileSync(join(cwd, "a.ts"), "const a = 1;\n");
+  writeFileSync(join(cwd, "b.py"), "b = 1\n");
+  const tools = new Map<string, any>();
+  const handlers = new Map<string, Function[]>();
+  lspExtension({
+    events: { on() {} },
+    registerTool: (tool: any) => tools.set(tool.name, tool),
+    registerCommand() {},
+    on: (event: string, h: Function) => handlers.set(event, [...(handlers.get(event) ?? []), h]),
+  } as any);
+  const statuses: string[] = [];
+  const ctx = { cwd, ui: { theme: { fg: (_c: string, text: string) => text }, setStatus: (_k: string, text: string) => statuses.push(text), notify() {} } };
+  const emit = async (event: string) => { for (const h of handlers.get(event) ?? []) await h({ type: event }, ctx); };
+  try {
+    await emit("session_start");
+    // Two servers, each started by a tool through the extension's lazy manager. The first
+    // call only kicks the start off (tree-sitter answers), so poll until the server does.
+    for (const path of ["a.ts", "b.py"]) {
+      let text = "";
+      for (let i = 0; i < 100 && text !== "fake hover 0:0"; i++) {
+        if (i > 0) await sleep(50);
+        text = (await tools.get("lsp_hover").execute("t", { path, line: 1, character: 1 })).content[0].text;
+      }
+      assert.equal(text, "fake hover 0:0", `${path} never answered from the fake server`);
+    }
+    const setup = statuses.filter((s) => s.includes("workspace"));
+    assert.equal(setup.length, 2, setup.join(" | "));
+    assert.equal(setup[0], "LSP: workspace setup...");
+    assert.match(setup[1], /^LSP: workspace ready \(/);
+  } finally {
+    await emit("session_shutdown");
+    rmSync(cwd, { recursive: true, force: true });
   }
 });
 

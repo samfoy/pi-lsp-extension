@@ -315,24 +315,19 @@ export default function lspExtension(pi: ExtensionAPI) {
   });
 
   // Register all LSP tools
-  // Tools call getManager() lazily so they work even if session_start hasn't fired
-  const managerProxy = new Proxy({} as LspManager, {
+  // Tools reach the current instances lazily, so they work even if session_start hasn't fired.
+  // Methods are bound to the real instance, so their `this.x = ...` writes land on it.
+  const lazy = <T extends object>(current: () => T): T => new Proxy({} as T, {
     get(_target, prop) {
-      return (getManager() as any)[prop];
+      const target = current();
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
     },
+    set: (_target, prop, value) => Reflect.set(current(), prop, value),
   });
-
-  const treeSitterProxy = new Proxy({} as TreeSitterManager, {
-    get(_target, prop) {
-      return (getTreeSitter() as any)[prop];
-    },
-  });
-
-  const workspaceIndexProxy = new Proxy({} as WorkspaceIndex, {
-    get(_target, prop) {
-      return (getWorkspaceIndex() as any)[prop];
-    },
-  });
+  const managerProxy = lazy(getManager);
+  const treeSitterProxy = lazy(getTreeSitter);
+  const workspaceIndexProxy = lazy(getWorkspaceIndex);
 
   pi.registerTool(createDiagnosticsTool(managerProxy, treeSitterProxy));
   pi.registerTool(createHoverTool(managerProxy, treeSitterProxy));

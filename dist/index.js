@@ -4659,21 +4659,17 @@ function lspExtension(pi) {
       }
     }
   });
-  const managerProxy = new Proxy({}, {
+  const lazy = (current) => new Proxy({}, {
     get(_target, prop) {
-      return getManager()[prop];
-    }
+      const target = current();
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set: (_target, prop, value) => Reflect.set(current(), prop, value)
   });
-  const treeSitterProxy = new Proxy({}, {
-    get(_target, prop) {
-      return getTreeSitter()[prop];
-    }
-  });
-  const workspaceIndexProxy = new Proxy({}, {
-    get(_target, prop) {
-      return getWorkspaceIndex()[prop];
-    }
-  });
+  const managerProxy = lazy(getManager);
+  const treeSitterProxy = lazy(getTreeSitter);
+  const workspaceIndexProxy = lazy(getWorkspaceIndex);
   pi.registerTool(createDiagnosticsTool(managerProxy, treeSitterProxy));
   pi.registerTool(createHoverTool(managerProxy, treeSitterProxy));
   pi.registerTool(createDefinitionTool(managerProxy, treeSitterProxy, workspaceIndexProxy));
