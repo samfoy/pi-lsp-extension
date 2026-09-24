@@ -28,13 +28,15 @@
 
 - The package ships a bundled `dist/` (built with esbuild) instead of raw `src/*.ts`, and the pi
   manifest points at `./dist/index.js`. `dist/` is committed, so `pi install git:github.com/samfoy/pi-lsp-extension` works without a build step.
-- The shared LSP daemon runs as plain `node dist/lsp-daemon.js`. The jiti launcher, including its
-  `@mariozechner/jiti` fallback and the transpile on every daemon start, is gone.
+- The shared LSP daemon runs as plain `node dist/lsp-daemon.js`, from the bundle and from source alike.
+  The jiti launcher, including its `@mariozechner/jiti` fallback and the transpile on every daemon
+  start, is gone.
 - TypeBox 1.x: the `typebox` peer replaces `@sinclair/typebox`. The unused `@earendil-works/pi-ai` peer is dropped.
 - `engines.node` is now `>=22.19.0`, pi's own minimum.
 
 ### Development
 
-- Real `npm run check` (`tsc --noEmit`), `npm test` (tree-sitter, structural search, Java workspace)
-  and `npm run build` scripts replace the `echo` placeholders.
+- Real `npm run check` (`tsc --noEmit`), `npm test` (tree-sitter, structural search, Java workspace,
+  and smoke tests that run the built daemon against a fake LSP server) and `npm run build` scripts
+  replace the `echo` placeholders.
 - CI checks types, tests, the build, and that `dist/` is up to date. Publishing uses npm trusted publishing.

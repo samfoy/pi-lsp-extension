@@ -427,6 +427,9 @@ function getJdtlsDataDir(cwd, platform = process.platform, env = process.env) {
   const hash = createHash("sha1").update(basename(cwd)).digest("hex");
   return join(cacheRoot, "jdtls", `jdtls-${hash}`);
 }
+function daemonScriptPath(moduleUrl = import.meta.url) {
+  return fileURLToPath(new URL("../dist/lsp-daemon.js", moduleUrl));
+}
 var DEFAULT_SERVERS = {
   typescript: { command: "typescript-language-server", args: ["--stdio"] },
   javascript: { command: "typescript-language-server", args: ["--stdio"] },
@@ -917,7 +920,7 @@ var LspManager = class _LspManager {
   /** Spawn an LSP daemon as a detached background process */
   async spawnDaemon(languageId, config, effectiveArgs, workspaceFolders, initializationOptions) {
     const socketPath = this.getSocketPath(languageId);
-    const daemonScript = fileURLToPath(new URL("./lsp-daemon.js", import.meta.url));
+    const daemonScript = daemonScriptPath();
     const env = {
       ...process.env,
       ...config.env ?? {},

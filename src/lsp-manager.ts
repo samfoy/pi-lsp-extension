@@ -48,6 +48,14 @@ export function getJdtlsDataDir(
   return join(cacheRoot, "jdtls", `jdtls-${hash}`);
 }
 
+/**
+ * The daemon is plain JS in the build output, so node runs it directly. The URL resolves to
+ * <package>/dist/lsp-daemon.js both from the bundle (dist/index.js) and from source (src/).
+ */
+export function daemonScriptPath(moduleUrl: string = import.meta.url): string {
+  return fileURLToPath(new URL("../dist/lsp-daemon.js", moduleUrl));
+}
+
 export interface ServerConfig {
   command: string;
   args: string[];
@@ -666,8 +674,7 @@ export class LspManager {
     initializationOptions?: Record<string, unknown>,
   ): Promise<void> {
     const socketPath = this.getSocketPath(languageId)!;
-    // Built next to this bundle (dist/lsp-daemon.js); plain JS, so node runs it directly.
-    const daemonScript = fileURLToPath(new URL("./lsp-daemon.js", import.meta.url));
+    const daemonScript = daemonScriptPath();
 
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
