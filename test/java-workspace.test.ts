@@ -1,0 +1,73 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { JAVA_IMPORT_EXCLUSIONS, LspManager, getJdtlsDataDir } from "../src/lsp-manager.js";
+
+// sha1("my-project"), as computed by jdtls.py: sha1(cwd_name.encode()).hexdigest()
+const HASH = "66a4119f8aefbe8687ef0e14c6e7e0e1844b7950";
+
+test("getJdtlsDataDir mirrors jdtls.py's default -data per platform", () => {
+  const cwd = "/work/my-project";
+  assert.equal(getJdtlsDataDir(cwd, "linux", { HOME: "/h" }), `/h/.cache/jdtls/jdtls-${HASH}`);
+  assert.equal(getJdtlsDataDir(cwd, "darwin", { HOME: "/h" }), `/h/Library/Caches/jdtls/jdtls-${HASH}`);
+  assert.equal(getJdtlsDataDir(cwd, "win32", { APPDATA: "/appdata" }), `/appdata/jdtls/jdtls-${HASH}`);
+  assert.equal(getJdtlsDataDir(cwd, "freebsd", { HOME: "/h" }), join(tmpdir(), "jdtls", `jdtls-${HASH}`));
+});
+
+test("Java init options always carry import exclusions, keeping jdtls defaults", () => {
+  const mgr = new LspManager(mkdtempSync(join(tmpdir(), "pi-lsp-java-")));
+  const opts = (mgr as any).getJavaInitializationOptions();
+  const exclusions = opts.settings["java.import.exclusions"];
+  assert.deepEqual(exclusions, JAVA_IMPORT_EXCLUSIONS);
+  for (const d of ["**/node_modules/**", "**/.metadata/**", "**/archetype-resources/**", "**/META-INF/maven/**"]) {
+    assert.ok(exclusions.includes(d), `keeps jdtls default ${d}`);
+  }
+});
+
+function withFakeJdtlsWorkspace(log: string, fn: (dataDir: string, cwd: string) => void): void {
+  const home = mkdtempSync(join(tmpdir(), "pi-lsp-home-"));
+  const prevHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const cwd = join(home, "my-project");
+    const dataDir = getJdtlsDataDir(cwd);
+    const res = join(dataDir, ".metadata", ".plugins", "org.eclipse.core.resources");
+    mkdirSync(join(res, ".root"), { recursive: true });
+    mkdirSync(join(res, ".projects", "p"), { recursive: true });
+    mkdirSync(join(dataDir, ".metadata", ".plugins", "org.eclipse.jdt.core"), { recursive: true });
+    writeFileSync(join(dataDir, ".metadata", ".log"), log);
+    for (const f of ["1.snap", ".root/2.tree", ".projects/p/3.snap"]) writeFileSync(join(res, f), "x");
+    writeFileSync(join(dataDir, ".metadata", ".plugins", "org.eclipse.jdt.core", "index.db"), "index");
+    fn(dataDir, cwd);
+  } finally {
+    process.env.HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test("corrupt jdtls workspace: snapshots are wiped, the JDT index is kept", { skip: process.platform !== "linux" }, () => {
+  withFakeJdtlsWorkspace("!ENTRY ...\norg.eclipse.core.internal.resources.ObjectNotFoundException: Resource '/x' does not exist.\n", (dataDir, cwd) => {
+    const messages: string[] = [];
+    const mgr = new LspManager(cwd);
+    (mgr as any).recoverCorruptJavaWorkspace(cwd, (m: string) => messages.push(m));
+    const res = join(dataDir, ".metadata", ".plugins", "org.eclipse.core.resources");
+    assert.equal(existsSync(join(res, "1.snap")), false);
+    assert.equal(existsSync(join(res, ".root", "2.tree")), false);
+    assert.equal(existsSync(join(res, ".projects", "p", "3.snap")), false);
+    assert.ok(existsSync(join(dataDir, ".metadata", ".plugins", "org.eclipse.jdt.core", "index.db")));
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /wiped 3 snapshot file/);
+  });
+});
+
+test("healthy jdtls workspace: nothing is wiped", { skip: process.platform !== "linux" }, () => {
+  withFakeJdtlsWorkspace("!ENTRY org.eclipse.jdt.ls.core 1 0 Initialized\n", (dataDir, cwd) => {
+    const messages: string[] = [];
+    (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (m: string) => messages.push(m));
+    const res = join(dataDir, ".metadata", ".plugins", "org.eclipse.core.resources");
+    assert.ok(existsSync(join(res, "1.snap")));
+    assert.deepEqual(messages, []);
+  });
+});

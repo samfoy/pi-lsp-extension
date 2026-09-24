@@ -5,16 +5,46 @@
  * Uses a WorkspaceProvider for workspace detection, multi-root folders, and daemon state.
  */
 
-import { resolve, join, dirname } from "node:path";
+import { resolve, join, dirname, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync, readdirSync, unlinkSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { spawn as spawnChild } from "node:child_process";
 import { LspClient } from "./lsp-client.js";
 import { type WorkspaceProvider, DefaultWorkspaceProvider } from "./workspace-provider.js";
 import { getLanguageIdFromPath } from "./shared/language-map.js";
 import { DAEMON_SOCKET_READY_DELAY_MS, DAEMON_RETRY_INTERVAL_MS, DAEMON_MAX_RETRIES } from "./shared/timing.js";
+
+/** jdtls's own default `java.import.exclusions`, then generated/output dirs. */
+export const JAVA_IMPORT_EXCLUSIONS: readonly string[] = [
+  "**/node_modules/**",
+  "**/.metadata/**",
+  "**/archetype-resources/**",
+  "**/META-INF/maven/**",
+  "**/.bemol/**",
+  "**/build/**",
+  "**/.gradle/**",
+  "**/bin/**",
+];
+
+/**
+ * jdtls workspace data dir, mirroring the default `-data` in jdtls's launcher
+ * script (jdtls.py): <platform cache dir>/jdtls/jdtls-<sha1(basename(cwd))>.
+ */
+export function getJdtlsDataDir(
+  cwd: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const cacheRoot =
+    platform === "win32" && env.APPDATA ? env.APPDATA
+    : platform === "darwin" && env.HOME ? join(env.HOME, "Library", "Caches")
+    : (platform === "linux" || env.TERMUX_VERSION) && env.HOME ? join(env.HOME, ".cache")
+    : tmpdir();
+  const hash = createHash("sha1").update(basename(cwd)).digest("hex");
+  return join(cacheRoot, "jdtls", `jdtls-${hash}`);
+}
 
 export interface ServerConfig {
   command: string;
@@ -177,20 +207,12 @@ export class LspManager {
   private getJavaInitializationOptions(): Record<string, unknown> {
     const lombokJar = this.findLombokJar();
 
-    // Always send import exclusions so .bemol/ codegen dirs never enter the
-    // Eclipse resource tree. Per-package .bemol/ dirs are transient symlinks
-    // that get regenerated/deleted between sessions — any reference in the
-    // saved snapshot causes ObjectNotFoundException on next startup.
-    // Cross-package navigation still works because bemol-extension feeds the
-    // real package paths to jdtls via LSP_WORKSPACE_FOLDERS before LSP starts.
+    // Keep generated/output dirs out of the Eclipse resource tree: dirs that are
+    // regenerated or deleted between sessions leave stale entries in jdtls's saved
+    // snapshot and crash the next startup (ObjectNotFoundException). Setting this
+    // replaces jdtls's defaults, so they are repeated first.
     const settings: Record<string, unknown> = {
-      "java.import.exclusions": [
-        "**/.bemol/**",
-        "**/build/**",
-        "**/.gradle/**",
-        "**/node_modules/**",
-        "**/bin/**",
-      ],
+      "java.import.exclusions": JAVA_IMPORT_EXCLUSIONS,
     };
 
     if (lombokJar) {
@@ -201,29 +223,19 @@ export class LspManager {
   }
 
   /**
-   * Compute the jdtls workspace cache directory for a given working directory.
-   * jdtls hashes basename(cwd) with SHA-1 to produce the dir name under ~/.cache/jdtls/.
-   */
-  private getJdtlsCacheDir(cwd: string): string {
-    const base = cwd.split("/").filter(Boolean).pop() ?? "";
-    const hash = createHash("sha1").update(base).digest("hex");
-    return join(homedir(), ".cache", "jdtls", `jdtls-${hash}`);
-  }
-
-  /**
    * Pre-launch self-heal for Java/jdtls workspace corruption.
    *
    * jdtls saves the Eclipse resource tree to rotating numbered snapshots
-   * (e.g. `1.snap`) in org.eclipse.core.resources/. When .bemol/ per-package
-   * dirs are regenerated or deleted between sessions, the saved tree has stale
-   * paths, causing ResourcesPlugin.start() to throw ObjectNotFoundException and
+   * (e.g. `1.snap`) in org.eclipse.core.resources/. When generated dirs are
+   * regenerated or deleted between sessions, the saved tree has stale paths,
+   * causing ResourcesPlugin.start() to throw ObjectNotFoundException and
    * preventing jdtls from initializing at all.
    *
    * Detects the crash signature in .metadata/.log and wipes only the fragile
-   * snapshot/marker files (~KB–MB). The 900 MB+ JDT index is preserved.
+   * snapshot/marker files (~KB–MB). The (often very large) JDT index is preserved.
    */
   private recoverCorruptJavaWorkspace(cwd: string, notify?: (msg: string) => void): void {
-    const cacheDir = this.getJdtlsCacheDir(cwd);
+    const cacheDir = getJdtlsDataDir(cwd);
     const logPath = join(cacheDir, ".metadata", ".log");
     if (!existsSync(logPath)) return;
 
@@ -459,17 +471,6 @@ export class LspManager {
     const folders = this._workspace.getWorkspaceFolders();
     const workspaceFolders = folders.length > 0 ? folders : undefined;
 
-    // For Java, run pre-launch workspace recovery before anything else.
-    // This silently wipes corrupt snapshot files if the log contains the
-    // ObjectNotFoundException / SaveManager crash signature, letting jdtls
-    // rebuild cleanly without losing the heavy JDT index.
-    if (languageId === "java") {
-      this.recoverCorruptJavaWorkspace(
-        this.rootDir,
-        (msg) => this._callbacks.onServerError?.(languageId, msg),
-      );
-    }
-
     // Build language-specific initializationOptions (e.g. Lombok for Java)
     // Use config-level initializationOptions if provided, otherwise fall back to language-specific defaults
     const initializationOptions = config.initializationOptions
@@ -516,6 +517,15 @@ export class LspManager {
 
     // No existing daemon — spawn one (or start direct if no state directory)
     this._callbacks.onServerStart?.(languageId, config.command);
+
+    // Only before launching a new jdtls, never under a live shared daemon: wipe
+    // corrupt snapshot files if the log has the crash signature, keeping the index.
+    if (languageId === "java") {
+      this.recoverCorruptJavaWorkspace(
+        this.rootDir,
+        (msg) => this._callbacks.onServerError?.(languageId, msg),
+      );
+    }
 
     if (stateDir) {
       // Spawn daemon and connect via socket
