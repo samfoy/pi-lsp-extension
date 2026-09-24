@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { JAVA_IMPORT_EXCLUSIONS, LspManager, getJdtlsDataDir } from "../src/lsp-manager.js";
 
 // sha1("my-project"), as computed by jdtls.py: sha1(cwd_name.encode()).hexdigest()
@@ -112,6 +112,66 @@ test("corrupt jdtls workspace: a symlinked resources dir pointing outside is lef
   }
 });
 
+test("corrupt jdtls workspace: a .metadata resolving outside is left alone, even if its resources dir links back in", { skip: process.platform !== "linux" }, () => {
+  const outside = mkdtempSync(join(tmpdir(), "pi-lsp-outside-"));
+  try {
+    withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
+      // .metadata -> <outside>/meta and <outside>/meta/.plugins -> <dataDir>/inner/.plugins:
+      // the resources dir resolves inside the data dir, but the log does not.
+      const meta = join(dataDir, ".metadata");
+      const innerPlugins = join(dataDir, "inner", ".plugins");
+      mkdirSync(dirname(innerPlugins));
+      renameSync(join(meta, ".plugins"), innerPlugins);
+      const outMeta = join(outside, "meta");
+      mkdirSync(outMeta);
+      writeFileSync(join(outMeta, ".log"), CRASH_LOG);
+      symlinkSync(innerPlugins, join(outMeta, ".plugins"));
+      rmSync(meta, { recursive: true });
+      symlinkSync(outMeta, meta);
+      const messages: string[] = [];
+      (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (m: string) => messages.push(m));
+      assert.deepEqual(readdirSync(outMeta).sort(), [".log", ".plugins"]);
+      assert.equal(readFileSync(join(outMeta, ".log"), "utf-8"), CRASH_LOG);
+      assert.ok(existsSync(join(innerPlugins, "org.eclipse.core.resources", "1.snap")));
+      assert.deepEqual(messages, []);
+    });
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("corrupt jdtls workspace: a log that cannot be rotated turns the notice into a warning", { skip: process.platform !== "linux" || process.getuid?.() === 0 }, () => {
+  withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
+    const meta = join(dataDir, ".metadata");
+    const notices: string[][] = [];
+    chmodSync(meta, 0o555); // snapshots still unlink, but renaming .metadata/.log fails
+    try {
+      (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (m: string, level: string) => notices.push([level, m]));
+    } finally {
+      chmodSync(meta, 0o755);
+    }
+    assert.equal(readFileSync(join(meta, ".log"), "utf-8"), CRASH_LOG);
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0][0], "warning");
+    assert.match(notices[0][1], /wiped 3 snapshot file.*The jdtls log .* could not be rotated, so this repair may repeat/);
+  });
+});
+
+test("corrupt jdtls workspace: only the 3 newest rotated logs are kept", { skip: process.platform !== "linux" }, () => {
+  withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
+    const meta = join(dataDir, ".metadata");
+    const older = [1, 2, 3, 4].map((d) => `.log.pi-lsp-recovered-2020-01-0${d}T00-00-00-000Z`);
+    for (const f of older) writeFileSync(join(meta, f), CRASH_LOG);
+    const notices: string[] = [];
+    (new LspManager(cwd) as any).recoverCorruptJavaWorkspace(cwd, (_m: string, level: string) => notices.push(level));
+    const rotated = readdirSync(meta).filter((f) => f.startsWith(".log.pi-lsp-recovered-")).sort();
+    assert.equal(rotated.length, 3);
+    assert.deepEqual(rotated.slice(0, 2), older.slice(2));
+    assert.ok(!older.includes(rotated[2]), "the log rotated just now is kept");
+    assert.deepEqual(notices, ["info"]);
+  });
+});
+
 test("corrupt jdtls workspace: recovery rotates the log, so the next launch wipes nothing", { skip: process.platform !== "linux" }, () => {
   withFakeJdtlsWorkspace(CRASH_LOG, (dataDir, cwd) => {
     const messages: string[] = [];
@@ -135,7 +195,7 @@ test("corrupt jdtls workspace: recovery rotates the log, so the next launch wipe
 
 test("a jdtls log that fails to read does not leak its file descriptor", { skip: process.platform !== "linux" }, () => {
   withFakeJdtlsWorkspace("", (dataDir, cwd) => {
-    // A directory opens fine on Linux, then readSync throws EISDIR.
+    // Not a regular file, so it is never opened (a directory would open, then readSync throws EISDIR).
     const log = join(dataDir, ".metadata", ".log");
     rmSync(log);
     mkdirSync(log);

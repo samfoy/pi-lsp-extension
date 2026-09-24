@@ -200,8 +200,8 @@ export default function lspExtension(pi: ExtensionAPI) {
     onServerError: (languageId: string, _error: string) => {
       setLspStatus("error", `LSP: ${languageId} failed`);
     },
-    onServerNotice: (_languageId: string, message: string) => {
-      withLatestCtx((ctx) => ctx.ui.notify(message, "info"));
+    onServerNotice: (_languageId: string, message: string, level: "info" | "warning") => {
+      withLatestCtx((ctx) => ctx.ui.notify(message, level));
     },
     onServerCrash: (languageId: string, restarting: boolean, attempt: number) => {
       if (restarting) {

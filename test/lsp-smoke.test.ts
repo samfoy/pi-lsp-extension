@@ -2,16 +2,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { LspClient } from "../src/lsp-client.js";
 import { LspManager, daemonScriptPath, getJdtlsDataDir } from "../src/lsp-manager.js";
 
 const FAKE_LSP = fileURLToPath(new URL("./fixtures/fake-lsp.mjs", import.meta.url));
+const REPO = fileURLToPath(new URL("..", import.meta.url));
 const BUILT_DAEMON = fileURLToPath(new URL("../dist/lsp-daemon.js", import.meta.url));
 const pendingTimers = () => process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
 
@@ -63,6 +64,26 @@ test("a failed daemon socket connect leaves no timer pending", { timeout: 5_000,
     assert.equal(pendingTimers(), timersBefore, "the failed connect left its timeout timer pending");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a FIFO at the jdtls log does not block the launch", { timeout: 20_000, skip: process.platform === "win32" }, (t) => {
+  const home = mkdtempSync(join(tmpdir(), "pi-lsp-home-"));
+  try {
+    const cwd = join(home, "my-project");
+    const log = join(getJdtlsDataDir(cwd, process.platform, { ...process.env, HOME: home }), ".metadata", ".log");
+    mkdirSync(dirname(log), { recursive: true });
+    try { execFileSync("mkfifo", [log]); } catch { return t.skip("mkfifo is not available"); }
+    // In a child: a blocking open would freeze this runner's own thread, timeout included.
+    const code = `const { LspManager } = await import("./src/lsp-manager.ts");
+      new LspManager(${JSON.stringify(cwd)}).recoverCorruptJavaWorkspace(${JSON.stringify(cwd)});`;
+    const run = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", code], {
+      cwd: REPO, env: { ...process.env, HOME: home }, timeout: 10_000, killSignal: "SIGKILL", encoding: "utf-8",
+    });
+    assert.equal(run.signal, null, "recovery blocked opening the FIFO");
+    assert.equal(run.status, 0, run.stderr);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });
 

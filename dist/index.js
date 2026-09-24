@@ -563,10 +563,18 @@ var LspManager = class _LspManager {
    */
   recoverCorruptJavaWorkspace(cwd, notify) {
     const cacheDir = getJdtlsDataDir(cwd);
-    const logPath = join(cacheDir, ".metadata", ".log");
-    if (!existsSync(logPath)) return;
+    const metaDir = join(cacheDir, ".metadata");
+    const logPath = join(metaDir, ".log");
+    const resDir = join(metaDir, ".plugins", "org.eclipse.core.resources");
+    try {
+      const root = realpathSync(cacheDir) + sep;
+      if (![metaDir, resDir].every((d) => realpathSync(d).startsWith(root))) return;
+    } catch {
+      return;
+    }
     let log = "";
     try {
+      if (!lstatSync(logPath).isFile()) return;
       const buf = Buffer.alloc(32768);
       const fd = openSync(logPath, "r");
       try {
@@ -581,12 +589,6 @@ var LspManager = class _LspManager {
     }
     const CRASH_PATTERN = /ObjectNotFoundException|Could not (?:read|restore) workspace tree|Exception in org\.eclipse\.core\.resources\.ResourcesPlugin\.start/;
     if (!CRASH_PATTERN.test(log)) return;
-    const resDir = join(cacheDir, ".metadata", ".plugins", "org.eclipse.core.resources");
-    try {
-      if (!realpathSync(resDir).startsWith(realpathSync(cacheDir) + sep)) return;
-    } catch {
-      return;
-    }
     const lstatOf = (p) => lstatSync(p, { throwIfNoEntry: false });
     const isRealDir = (p) => lstatOf(p)?.isDirectory() === true;
     const realSubdirs = (dir) => {
@@ -620,16 +622,29 @@ var LspManager = class _LspManager {
         }
       }
     }
-    if (wiped.length > 0) {
-      const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    if (wiped.length === 0) return;
+    const rotatedPrefix = ".log.pi-lsp-recovered-";
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    let rotated = true;
+    try {
+      renameSync(logPath, join(metaDir, rotatedPrefix + stamp));
+    } catch {
+      rotated = false;
+    }
+    let rotatedLogs = [];
+    try {
+      rotatedLogs = readdirSync(metaDir).filter((f) => f.startsWith(rotatedPrefix) && lstatOf(join(metaDir, f))?.isFile() === true);
+    } catch {
+    }
+    for (const f of rotatedLogs.sort().slice(0, -3)) {
       try {
-        renameSync(logPath, `${logPath}.pi-lsp-recovered-${stamp}`);
+        unlinkSync(join(metaDir, f));
       } catch {
       }
-      const msg = `[jdtls] Auto-recovered corrupt workspace \u2014 wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
-      process.stderr.write(msg + "\n");
-      notify?.(msg);
     }
+    const msg = `[jdtls] Auto-recovered corrupt workspace \u2014 wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
+    if (rotated) notify?.(msg, "info");
+    else notify?.(`${msg} The jdtls log (${logPath}) could not be rotated, so this repair may repeat on later launches.`, "warning");
   }
   /** Get all configured languages */
   getConfiguredLanguages() {
@@ -817,7 +832,7 @@ var LspManager = class _LspManager {
     if (languageId === "java") {
       this.recoverCorruptJavaWorkspace(
         this.rootDir,
-        (msg) => this._callbacks.onServerNotice?.(languageId, msg)
+        (msg, level) => this._callbacks.onServerNotice?.(languageId, msg, level)
       );
     }
     if (stateDir) {
@@ -4555,8 +4570,8 @@ function lspExtension(pi) {
     onServerError: (languageId, _error) => {
       setLspStatus("error", `LSP: ${languageId} failed`);
     },
-    onServerNotice: (_languageId, message) => {
-      withLatestCtx((ctx) => ctx.ui.notify(message, "info"));
+    onServerNotice: (_languageId, message, level) => {
+      withLatestCtx((ctx) => ctx.ui.notify(message, level));
     },
     onServerCrash: (languageId, restarting, attempt) => {
       if (restarting) {

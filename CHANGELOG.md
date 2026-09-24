@@ -17,10 +17,15 @@
 - Java: a jdtls workspace corrupted by a previous session (`ObjectNotFoundException` while restoring
   the workspace tree) is repaired before launch. Only the resource-tree snapshots are removed and the
   JDT index is kept. The workspace data dir is located the same way as jdtls's launcher does it on
-  Linux, macOS and Windows. Recovery never deletes anything outside the data dir: it does not
-  follow symlinks, and does nothing if the resource-tree dir resolves elsewhere. After a repair the
-  jdtls log is renamed to `.log.pi-lsp-recovered-<timestamp>`, so the same crash is repaired once,
-  not on every launch. A repair shows as an info notice, not as "LSP: java failed".
+  Linux, macOS and Windows. Recovery does nothing unless `.metadata` and the resource-tree dir both
+  resolve, through any symlinks, to paths inside the resolved data dir. It then deletes only regular
+  `*.snap` and `*.tree` files, never a symlink, in the resource-tree dir, its `.root` dir and its
+  project dirs, and skips a `.root` or project dir that is a symlink. It reads and renames
+  `.metadata/.log` only when that is a regular file, so a FIFO there cannot block the launch. After
+  a repair the jdtls log is renamed to `.log.pi-lsp-recovered-<timestamp>`, so the same crash is
+  repaired once, not on every launch, and only the 3 newest renamed logs are kept. A repair shows as
+  an info notice, not as "LSP: java failed". If the log cannot be renamed, the notice is a warning
+  that the repair may repeat.
   Recovery runs only right before this session launches its own jdtls, so it is skipped whenever the
   session connects to a running shared daemon. It does not check whether another jdtls is using the
   data dir. That can happen when a daemon's PID is alive but connecting to it fails, when another

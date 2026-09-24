@@ -73,8 +73,8 @@ export interface LspManagerCallbacks {
   onServerStart?: (languageId: string, command: string) => void;
   onServerReady?: (languageId: string) => void;
   onServerError?: (languageId: string, error: string) => void;
-  /** Informational message about a server that is not a failure (e.g. a workspace repair) */
-  onServerNotice?: (languageId: string, message: string) => void;
+  /** Message about a server that is not a failure (e.g. a workspace repair) */
+  onServerNotice?: (languageId: string, message: string, level: "info" | "warning") => void;
   onServerCrash?: (languageId: string, restarting: boolean, attempt: number) => void;
 }
 
@@ -247,13 +247,25 @@ export class LspManager {
    * snapshot/marker files (~KB–MB). The (often very large) JDT index is preserved.
    * After a wipe the log is rotated, so the same crash is not repaired twice.
    */
-  private recoverCorruptJavaWorkspace(cwd: string, notify?: (msg: string) => void): void {
+  private recoverCorruptJavaWorkspace(cwd: string, notify?: (msg: string, level: "info" | "warning") => void): void {
     const cacheDir = getJdtlsDataDir(cwd);
-    const logPath = join(cacheDir, ".metadata", ".log");
-    if (!existsSync(logPath)) return;
+    const metaDir = join(cacheDir, ".metadata");
+    const logPath = join(metaDir, ".log");
+    const resDir = join(metaDir, ".plugins", "org.eclipse.core.resources");
+
+    // Every read, rename and delete below is in metaDir or resDir: act only if both really
+    // lie inside the data dir once symlinks are resolved.
+    try {
+      const root = realpathSync(cacheDir) + sep;
+      if (![metaDir, resDir].every((d) => realpathSync(d).startsWith(root))) return;
+    } catch {
+      return;
+    }
 
     let log = "";
     try {
+      // A regular file only: opening a FIFO would block the launch forever.
+      if (!lstatSync(logPath).isFile()) return;
       // Read last 32 KB — crash signature is always near the end
       const buf = Buffer.alloc(32768);
       const fd = openSync(logPath, "r");
@@ -271,15 +283,7 @@ export class LspManager {
     const CRASH_PATTERN = /ObjectNotFoundException|Could not (?:read|restore) workspace tree|Exception in org\.eclipse\.core\.resources\.ResourcesPlugin\.start/;
     if (!CRASH_PATTERN.test(log)) return;
 
-    // Wipe fragile snapshot/marker files under org.eclipse.core.resources/, and
-    // only if that dir really lies inside the data dir once symlinks are resolved.
-    const resDir = join(cacheDir, ".metadata", ".plugins", "org.eclipse.core.resources");
-    try {
-      if (!realpathSync(resDir).startsWith(realpathSync(cacheDir) + sep)) return;
-    } catch {
-      return;
-    }
-
+    // Wipe fragile snapshot/marker files under org.eclipse.core.resources/.
     // lstat, so symlinks are never walked into or deleted through.
     const lstatOf = (p: string) => lstatSync(p, { throwIfNoEntry: false });
     const isRealDir = (p: string) => lstatOf(p)?.isDirectory() === true;
@@ -306,14 +310,24 @@ export class LspManager {
       }
     }
 
-    if (wiped.length > 0) {
-      // Eclipse appends to .log, so the old crash signature would trigger a wipe on every launch.
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      try { renameSync(logPath, `${logPath}.pi-lsp-recovered-${stamp}`); } catch { /* ignore */ }
-      const msg = `[jdtls] Auto-recovered corrupt workspace — wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
-      process.stderr.write(msg + "\n");
-      notify?.(msg);
+    if (wiped.length === 0) return;
+
+    // Eclipse appends to .log, so the old crash signature would trigger a wipe on every launch.
+    const rotatedPrefix = ".log.pi-lsp-recovered-";
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    let rotated = true;
+    try { renameSync(logPath, join(metaDir, rotatedPrefix + stamp)); } catch { rotated = false; }
+
+    // Keep the 3 newest rotated logs; their ISO stamps sort by time.
+    let rotatedLogs: string[] = [];
+    try { rotatedLogs = readdirSync(metaDir).filter((f) => f.startsWith(rotatedPrefix) && lstatOf(join(metaDir, f))?.isFile() === true); } catch { /* ignore */ }
+    for (const f of rotatedLogs.sort().slice(0, -3)) {
+      try { unlinkSync(join(metaDir, f)); } catch { /* ignore */ }
     }
+
+    const msg = `[jdtls] Auto-recovered corrupt workspace — wiped ${wiped.length} snapshot file(s). Rebuild will take a moment.`;
+    if (rotated) notify?.(msg, "info");
+    else notify?.(`${msg} The jdtls log (${logPath}) could not be rotated, so this repair may repeat on later launches.`, "warning");
   }
 
   /** Get all configured languages */
@@ -545,7 +559,7 @@ export class LspManager {
     if (languageId === "java") {
       this.recoverCorruptJavaWorkspace(
         this.rootDir,
-        (msg) => this._callbacks.onServerNotice?.(languageId, msg),
+        (msg, level) => this._callbacks.onServerNotice?.(languageId, msg, level),
       );
     }
 
