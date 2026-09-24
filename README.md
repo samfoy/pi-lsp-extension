@@ -6,16 +6,17 @@ A [pi](https://github.com/earendil-works/pi) coding agent extension that integra
 
 | Tool | Description |
 |------|-------------|
-| `lsp_diagnostics` | Compilation errors and warnings for a file |
-| `lsp_hover` | Type information and documentation at a position |
-| `lsp_definition` | Go to definition of a symbol |
-| `lsp_references` | Find all references to a symbol |
-| `lsp_symbols` | List file symbols or search workspace symbols |
-| `lsp_rename` | Preview rename refactoring (returns planned edits) |
-| `lsp_completions` | Code completion suggestions at a position |
-| `code_overview` | Project structure, key files, and symbols (tree-sitter) |
-| `code_search` | Find code by AST structure with metavariables |
-| `code_rewrite` | Transform code matching structural patterns |
+| `lsp_diagnostics` | Get compilation errors and warnings from the LSP server, for one file or `"*"` for the whole workspace |
+| `lsp_hover` | Get type information and documentation for a symbol at a specific position in a file |
+| `lsp_definition` | Go to the definition of a symbol at a specific position |
+| `lsp_references` | Find all references to a symbol at a specific position |
+| `lsp_symbols` | List symbols in a file (document symbols) or search for symbols across the workspace |
+| `lsp_rename` | Preview a rename refactoring for a symbol at a position (does not apply the changes) |
+| `lsp_code_actions` | Get available code actions (quick fixes, refactorings, source actions) at a position or range |
+| `lsp_completions` | Get completion suggestions at a specific position in a file |
+| `code_overview` | Summarize project structure: directory tree, top-level symbols per key file, dependency manifests (tree-sitter, no LSP) |
+| `ast_search` | Find code matching a structural pattern using AST matching |
+| `code_rewrite` | Transform code matching a structural pattern into a replacement (dry-run by default) |
 
 LSP servers start lazily — they only spin up when a tool is first used on a file of that language. For slow servers (e.g. jdtls), you can [auto-start them on session launch](#project-config).
 
