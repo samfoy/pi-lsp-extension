@@ -7,6 +7,7 @@ import type { Hover, MarkupContent } from "vscode-languageserver-protocol";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { LspManager } from "../lsp-manager.js";
+import type { FileSync } from "../file-sync.js";
 import type { TreeSitterManager } from "../tree-sitter/parser-manager.js";
 import { resolveProvider } from "../resolve-provider.js";
 import { getEnclosingDeclaration, getSignatureText } from "../tree-sitter/symbol-extractor.js";
@@ -42,6 +43,7 @@ interface HoverDetails { hasResult: boolean }
 export function createHoverTool(
   manager: LspManager,
   treeSitter?: TreeSitterManager | null,
+  fileSync?: FileSync,
 ): ToolDefinition<typeof HoverParams, HoverDetails> {
   return {
     name: "lsp_hover",
@@ -78,6 +80,7 @@ export function createHoverTool(
 
       if (client) {
         // LSP path
+        await fileSync?.ensureOpen(filePath); // servers like tsserver/clangd need an open document
         const uri = manager.getFileUri(filePath);
         const position = { line: line - 1, character: character - 1 };
 

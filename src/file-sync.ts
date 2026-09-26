@@ -99,6 +99,12 @@ export class FileSync {
 
     try {
       const content = await readFile(absPath, "utf-8");
+      // Re-check after the await: a concurrent opener may have opened it already
+      // (same-batch read + navigate is a real pattern — issue #18).
+      if (this.tracked.has(uri)) {
+        this.touchAndEvict(uri);
+        return;
+      }
       const doc: TrackedDocument = { uri, languageId, version: 1 };
       this.tracked.set(uri, doc);
       client.didOpen(uri, languageId, doc.version, content);
@@ -106,6 +112,41 @@ export class FileSync {
     } catch {
       // File might not exist or be unreadable — ignore
     }
+  }
+
+  /**
+   * Ensure a document is open before a navigation request (issue #18).
+   *
+   * tsserver (typescript-language-server) and clangd return empty results or
+   * errors for documents that were never `didOpen`'ed, while rust-analyzer and
+   * ty answer from disk — so navigation on never-read files silently fails on
+   * some servers. Nav tools call this in their LSP branch; no-op when the file
+   * is already tracked or no server is running (caller keeps its fallback).
+   */
+  async ensureOpen(filePath: string): Promise<void> {
+    const absPath = this.manager.resolvePath(filePath);
+    const uri = this.manager.getFileUri(absPath);
+    if (this.tracked.has(uri)) {
+      this.touchAndEvict(uri);
+      return;
+    }
+    const languageId = this.manager.getLanguageId(absPath);
+    if (!languageId) return;
+    const client = this.manager.getRunningClient(languageId);
+    if (!client) return;
+
+    const content = await readFile(absPath, "utf-8").catch(() => null);
+    if (content === null) return; // unreadable — let the server/tool report it
+    // Re-check after the await: check + record happen in one synchronous block,
+    // so a concurrent opener (handleFileRead / ensureOpen) cannot double-open.
+    if (this.tracked.has(uri)) {
+      this.touchAndEvict(uri);
+      return;
+    }
+    const doc: TrackedDocument = { uri, languageId, version: 1 };
+    this.tracked.set(uri, doc);
+    client.didOpen(uri, languageId, doc.version, content);
+    this.touchAndEvict(uri);
   }
 
   /**

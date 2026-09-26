@@ -8,6 +8,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateHead, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { LspManager } from "../lsp-manager.js";
+import type { FileSync } from "../file-sync.js";
 import type { TreeSitterManager } from "../tree-sitter/parser-manager.js";
 import { formatLocation } from "../shared/format.js";
 import { resolveSymbolPosition, getSymbolNames } from "../shared/resolve-position.js";
@@ -27,6 +28,7 @@ interface ReferencesDetails { count: number }
 export function createReferencesTool(
   manager: LspManager,
   treeSitter?: TreeSitterManager | null,
+  fileSync?: FileSync,
 ): ToolDefinition<typeof ReferencesParams, ReferencesDetails> {
   return {
     name: "lsp_references",
@@ -66,6 +68,7 @@ export function createReferencesTool(
 
       const uri = manager.getFileUri(filePath);
       const position = { line: line - 1, character: character - 1 };
+      await fileSync?.ensureOpen(filePath); // servers like tsserver/clangd need an open document
 
       try {
         const locations = await client.sendRequest<Location[] | null>("textDocument/references", {
