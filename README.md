@@ -59,6 +59,7 @@ Install the language server you need, then it works automatically:
 | TypeScript/JavaScript | `typescript-language-server` | `npm i -g typescript-language-server typescript` |
 | Python | `pyright-langserver` | `pip install pyright` |
 | Rust | `rust-analyzer` | [rustup](https://rustup.rs/) |
+| C/C++ | `clangd` | system package manager (`clangd` on PATH) |
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 | Java | `jdtls` | [Eclipse JDT.LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) |
 

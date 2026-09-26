@@ -79,7 +79,7 @@ export interface LspManagerCallbacks {
 }
 
 /** Default server configurations for common languages */
-const DEFAULT_SERVERS: Record<string, ServerConfig> = {
+export const DEFAULT_SERVERS: Record<string, ServerConfig> = {
   typescript: { command: "typescript-language-server", args: ["--stdio"] },
   javascript: { command: "typescript-language-server", args: ["--stdio"] },
   typescriptreact: { command: "typescript-language-server", args: ["--stdio"] },
@@ -88,6 +88,8 @@ const DEFAULT_SERVERS: Record<string, ServerConfig> = {
   python: { command: "pyright-langserver", args: ["--stdio"] },
   go: { command: "gopls", args: ["serve"] },
   java: { command: "jdtls", args: [] },
+  c: { command: "clangd", args: [] },
+  cpp: { command: "clangd", args: [] },
 };
 
 // File extension → language ID mapping is in shared/language-map.ts
