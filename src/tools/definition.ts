@@ -7,6 +7,7 @@ import type { Location, LocationLink } from "vscode-languageserver-protocol";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { LspManager } from "../lsp-manager.js";
+import type { FileSync } from "../file-sync.js";
 import type { TreeSitterManager } from "../tree-sitter/parser-manager.js";
 import type { WorkspaceIndex } from "../tree-sitter/workspace-index.js";
 import { resolveProvider } from "../resolve-provider.js";
@@ -31,6 +32,7 @@ export function createDefinitionTool(
   manager: LspManager,
   treeSitter?: TreeSitterManager | null,
   workspaceIndex?: WorkspaceIndex | null,
+  fileSync?: FileSync,
 ): ToolDefinition<typeof DefinitionParams, DefinitionDetails> {
   return {
     name: "lsp_definition",
@@ -67,6 +69,7 @@ export function createDefinitionTool(
 
       if (client) {
         // LSP path
+        await fileSync?.ensureOpen(filePath); // servers like tsserver/clangd need an open document
         const uri = manager.getFileUri(filePath);
         const position = { line: line - 1, character: character - 1 };
 

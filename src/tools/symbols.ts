@@ -8,6 +8,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateHead, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { LspManager } from "../lsp-manager.js";
+import type { FileSync } from "../file-sync.js";
 import type { TreeSitterManager } from "../tree-sitter/parser-manager.js";
 import type { WorkspaceIndex } from "../tree-sitter/workspace-index.js";
 import { resolveProvider } from "../resolve-provider.js";
@@ -79,6 +80,7 @@ export function createSymbolsTool(
   manager: LspManager,
   treeSitter?: TreeSitterManager | null,
   workspaceIndex?: WorkspaceIndex | null,
+  fileSync?: FileSync,
 ): ToolDefinition<typeof SymbolsParams, SymbolsDetails> {
   return {
     name: "lsp_symbols",
@@ -103,6 +105,7 @@ export function createSymbolsTool(
         const client = await manager.getClientForFile(filePath).catch(() => null);
         if (client) {
           // LSP path
+          await fileSync?.ensureOpen(filePath); // servers like tsserver/clangd need an open document
           const uri = manager.getFileUri(filePath);
           try {
             const result = await client.sendRequest<DocumentSymbol[] | SymbolInformation[] | null>(

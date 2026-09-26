@@ -1140,12 +1140,47 @@ var FileSync = class {
     if (!client) return;
     try {
       const content = await readFile(absPath, "utf-8");
+      if (this.tracked.has(uri)) {
+        this.touchAndEvict(uri);
+        return;
+      }
       const doc = { uri, languageId, version: 1 };
       this.tracked.set(uri, doc);
       client.didOpen(uri, languageId, doc.version, content);
       this.touchAndEvict(uri);
     } catch {
     }
+  }
+  /**
+   * Ensure a document is open before a navigation request (issue #18).
+   *
+   * tsserver (typescript-language-server) and clangd return empty results or
+   * errors for documents that were never `didOpen`'ed, while rust-analyzer and
+   * ty answer from disk — so navigation on never-read files silently fails on
+   * some servers. Nav tools call this in their LSP branch; no-op when the file
+   * is already tracked or no server is running (caller keeps its fallback).
+   */
+  async ensureOpen(filePath) {
+    const absPath = this.manager.resolvePath(filePath);
+    const uri = this.manager.getFileUri(absPath);
+    if (this.tracked.has(uri)) {
+      this.touchAndEvict(uri);
+      return;
+    }
+    const languageId = this.manager.getLanguageId(absPath);
+    if (!languageId) return;
+    const client = this.manager.getRunningClient(languageId);
+    if (!client) return;
+    const content = await readFile(absPath, "utf-8").catch(() => null);
+    if (content === null) return;
+    if (this.tracked.has(uri)) {
+      this.touchAndEvict(uri);
+      return;
+    }
+    const doc = { uri, languageId, version: 1 };
+    this.tracked.set(uri, doc);
+    client.didOpen(uri, languageId, doc.version, content);
+    this.touchAndEvict(uri);
   }
   /**
    * Handle a file being written/edited — sends didOpen or didChange.
@@ -2340,7 +2375,7 @@ var HoverParams = Type2.Object({
   character: Type2.Optional(Type2.Number({ description: "Column number (1-indexed). Required unless query is provided." })),
   query: Type2.Optional(Type2.String({ description: "Symbol name to find in the file. Alternative to line/character \u2014 resolves the symbol's position automatically." }))
 });
-function createHoverTool(manager, treeSitter) {
+function createHoverTool(manager, treeSitter, fileSync) {
   return {
     name: "lsp_hover",
     label: "LSP Hover",
@@ -2370,6 +2405,7 @@ Available symbols: ${names.slice(0, 20).join(", ")}` : "";
       }
       const client = await manager.getClientForFile(filePath).catch(() => null);
       if (client) {
+        await fileSync?.ensureOpen(filePath);
         const uri = manager.getFileUri(filePath);
         const position = { line: line - 1, character: character - 1 };
         try {
@@ -2483,7 +2519,7 @@ var DefinitionParams = Type3.Object({
   character: Type3.Optional(Type3.Number({ description: "Column number (1-indexed). Required unless query is provided." })),
   query: Type3.Optional(Type3.String({ description: "Symbol name to find in the file. Alternative to line/character \u2014 resolves the symbol's position automatically." }))
 });
-function createDefinitionTool(manager, treeSitter, workspaceIndex) {
+function createDefinitionTool(manager, treeSitter, workspaceIndex, fileSync) {
   return {
     name: "lsp_definition",
     label: "LSP Definition",
@@ -2513,6 +2549,7 @@ Available symbols: ${names.slice(0, 20).join(", ")}` : "";
       }
       const client = await manager.getClientForFile(filePath).catch(() => null);
       if (client) {
+        await fileSync?.ensureOpen(filePath);
         const uri = manager.getFileUri(filePath);
         const position = { line: line - 1, character: character - 1 };
         try {
@@ -2639,7 +2676,7 @@ var ReferencesParams = Type4.Object({
     Type4.Boolean({ description: "Include the declaration in results (default: true)" })
   )
 });
-function createReferencesTool(manager, treeSitter) {
+function createReferencesTool(manager, treeSitter, fileSync) {
   return {
     name: "lsp_references",
     label: "LSP References",
@@ -2673,6 +2710,7 @@ Available symbols: ${names.slice(0, 20).join(", ")}` : "";
       }
       const uri = manager.getFileUri(filePath);
       const position = { line: line - 1, character: character - 1 };
+      await fileSync?.ensureOpen(filePath);
       try {
         const locations = await client.sendRequest("textDocument/references", {
           textDocument: { uri },
@@ -2800,7 +2838,7 @@ function formatTreeSitterSymbol(sym, indent = 0) {
   }
   return result;
 }
-function createSymbolsTool(manager, treeSitter, workspaceIndex) {
+function createSymbolsTool(manager, treeSitter, workspaceIndex, fileSync) {
   return {
     name: "lsp_symbols",
     label: "LSP Symbols",
@@ -2819,6 +2857,7 @@ function createSymbolsTool(manager, treeSitter, workspaceIndex) {
       if (filePath) {
         const client = await manager.getClientForFile(filePath).catch(() => null);
         if (client) {
+          await fileSync?.ensureOpen(filePath);
           const uri = manager.getFileUri(filePath);
           try {
             const result = await client.sendRequest(
@@ -4670,11 +4709,12 @@ function lspExtension(pi) {
   const managerProxy = lazy(getManager);
   const treeSitterProxy = lazy(getTreeSitter);
   const workspaceIndexProxy = lazy(getWorkspaceIndex);
+  const fileSyncProxy = lazy(getFileSync);
   pi.registerTool(createDiagnosticsTool(managerProxy, treeSitterProxy));
-  pi.registerTool(createHoverTool(managerProxy, treeSitterProxy));
-  pi.registerTool(createDefinitionTool(managerProxy, treeSitterProxy, workspaceIndexProxy));
-  pi.registerTool(createReferencesTool(managerProxy, treeSitterProxy));
-  pi.registerTool(createSymbolsTool(managerProxy, treeSitterProxy, workspaceIndexProxy));
+  pi.registerTool(createHoverTool(managerProxy, treeSitterProxy, fileSyncProxy));
+  pi.registerTool(createDefinitionTool(managerProxy, treeSitterProxy, workspaceIndexProxy, fileSyncProxy));
+  pi.registerTool(createReferencesTool(managerProxy, treeSitterProxy, fileSyncProxy));
+  pi.registerTool(createSymbolsTool(managerProxy, treeSitterProxy, workspaceIndexProxy, fileSyncProxy));
   pi.registerTool(createRenameTool(managerProxy, treeSitterProxy));
   pi.registerTool(createCodeActionsTool(managerProxy, treeSitterProxy));
   pi.registerTool(createCompletionsTool(managerProxy, {

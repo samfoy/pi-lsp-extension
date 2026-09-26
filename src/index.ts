@@ -328,12 +328,13 @@ export default function lspExtension(pi: ExtensionAPI) {
   const managerProxy = lazy(getManager);
   const treeSitterProxy = lazy(getTreeSitter);
   const workspaceIndexProxy = lazy(getWorkspaceIndex);
+  const fileSyncProxy = lazy(getFileSync);
 
   pi.registerTool(createDiagnosticsTool(managerProxy, treeSitterProxy));
-  pi.registerTool(createHoverTool(managerProxy, treeSitterProxy));
-  pi.registerTool(createDefinitionTool(managerProxy, treeSitterProxy, workspaceIndexProxy));
-  pi.registerTool(createReferencesTool(managerProxy, treeSitterProxy));
-  pi.registerTool(createSymbolsTool(managerProxy, treeSitterProxy, workspaceIndexProxy));
+  pi.registerTool(createHoverTool(managerProxy, treeSitterProxy, fileSyncProxy));
+  pi.registerTool(createDefinitionTool(managerProxy, treeSitterProxy, workspaceIndexProxy, fileSyncProxy));
+  pi.registerTool(createReferencesTool(managerProxy, treeSitterProxy, fileSyncProxy));
+  pi.registerTool(createSymbolsTool(managerProxy, treeSitterProxy, workspaceIndexProxy, fileSyncProxy));
   pi.registerTool(createRenameTool(managerProxy, treeSitterProxy));
   pi.registerTool(createCodeActionsTool(managerProxy, treeSitterProxy));
   pi.registerTool(createCompletionsTool(managerProxy, {
