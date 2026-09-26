@@ -278,8 +278,16 @@ export default function lspExtension(pi: ExtensionAPI) {
       ctx.ui.setStatus("lsp", ctx.ui.theme.fg("dim", "LSP: idle"));
     }
 
-    // Load project config and apply settings
+    // Load project config and apply settings.
+    // .pi-lsp.json can point `servers` at arbitrary commands (and `lombokJar`
+    // at a repository jar) — code execution from repository contents — so
+    // honor it only for trusted projects (issue #16). Projects without
+    // trust-requiring resources are trusted by pi and stay unaffected.
     projectConfig = loadProjectConfig(ctx.cwd);
+    if (projectConfig && !ctx.isProjectTrusted()) {
+      projectConfig = null;
+      ctx.ui.notify("LSP: ignored .pi-lsp.json (project not trusted)", "info");
+    }
     if (projectConfig) {
       // Apply custom server configs
       if (projectConfig.servers) {
