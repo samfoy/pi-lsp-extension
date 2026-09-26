@@ -169,6 +169,25 @@ The config file is loaded once at session start. Changes require restarting the 
 
 This starts jdtls as soon as the session begins, so by the time you need `lsp_diagnostics` or `lsp_hover`, the server is already warm.
 
+## User config
+
+A user-level `pi-lsp.json` is read from `PI_CODING_AGENT_DIR` (pi's documented
+config-directory override) or `~/.pi/agent` by default. The project file
+overrides it **key by key**:
+
+- scalars and arrays (`autoInjectDiagnostics`, `autoStart`, `lombokJar`) —
+  the project value replaces the user value as a whole
+- `servers` — merged per language: project languages win, other user-level
+  languages remain
+
+One file to disable injection everywhere:
+
+```json
+{ "autoInjectDiagnostics": false }
+```
+
+Missing or invalid files are ignored, same as the project config.
+
 ## Architecture
 
 ```

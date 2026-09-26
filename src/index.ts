@@ -48,6 +48,7 @@ import { createCodeActionsTool } from "./tools/code-actions.js";
 import { syntheticDotLocks } from "./tools/completions.js";
 import { relative } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { DIAGNOSTIC_SETTLE_DELAY_MS } from "./shared/timing.js";
 
@@ -85,9 +86,8 @@ interface ProjectLspConfig {
   autoInjectDiagnostics?: boolean | string[];
 }
 
-/** Load .pi-lsp.json from a directory. Returns null if not found or invalid. */
-function loadProjectConfig(dir: string): ProjectLspConfig | null {
-  const configPath = join(dir, ".pi-lsp.json");
+/** Load a JSON config file. Returns null if not found or invalid. */
+function loadConfigFile(configPath: string): ProjectLspConfig | null {
   try {
     if (!existsSync(configPath)) return null;
     const raw = readFileSync(configPath, "utf-8");
@@ -97,6 +97,49 @@ function loadProjectConfig(dir: string): ProjectLspConfig | null {
   } catch {
     return null;
   }
+}
+
+/** Load .pi-lsp.json from a directory. Returns null if not found or invalid. */
+function loadProjectConfig(dir: string): ProjectLspConfig | null {
+  return loadConfigFile(join(dir, ".pi-lsp.json"));
+}
+
+/**
+ * Resolve the user-level config path: `PI_CODING_AGENT_DIR` (pi's documented
+ * config-directory override) or `~/.pi/agent` by default — the same directory
+ * pi itself resolves for settings.json.
+ */
+export function resolveUserConfigPath(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): string {
+  const dir = env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
+  return join(dir, "pi-lsp.json");
+}
+
+/** Load the user-level pi-lsp.json. Returns null if not found or invalid. */
+export function loadUserConfig(): ProjectLspConfig | null {
+  return loadConfigFile(resolveUserConfigPath());
+}
+
+/**
+ * Merge user and project configs key by key — the project wins per key.
+ * Scalars and arrays (`autoInjectDiagnostics`, `autoStart`, `lombokJar`) are
+ * replaced wholesale by the project value; `servers` merges per language, so
+ * a project can add languages without erasing user-level servers, while a
+ * project's entry for the same language replaces the user's entirely.
+ */
+export function mergeConfigs(
+  user: ProjectLspConfig | null,
+  project: ProjectLspConfig | null,
+): ProjectLspConfig | null {
+  if (!user) return project;
+  if (!project) return user;
+  const merged: ProjectLspConfig = { ...user, ...project };
+  if (user.servers || project.servers) {
+    merged.servers = { ...user.servers, ...project.servers };
+  }
+  return merged;
 }
 
 export default function lspExtension(pi: ExtensionAPI) {
@@ -120,7 +163,8 @@ export default function lspExtension(pi: ExtensionAPI) {
   let pendingProvider: WorkspaceProvider | null = null;
   // Store latest ctx for lifecycle callbacks (updated on each event)
   let latestCtx: any = null;
-  // Project config — loaded on session_start, used by auto-injection guard
+  // Effective config — user-level pi-lsp.json overridden key-by-key by the
+  // project .pi-lsp.json, merged on session_start; used by the auto-injection guard
   let projectConfig: ProjectLspConfig | null = null;
 
   /**
@@ -278,8 +322,8 @@ export default function lspExtension(pi: ExtensionAPI) {
       ctx.ui.setStatus("lsp", ctx.ui.theme.fg("dim", "LSP: idle"));
     }
 
-    // Load project config and apply settings
-    projectConfig = loadProjectConfig(ctx.cwd);
+    // Load effective config (user-level, overridden key-by-key by the project) and apply settings
+    projectConfig = mergeConfigs(loadUserConfig(), loadProjectConfig(ctx.cwd));
     if (projectConfig) {
       // Apply custom server configs
       if (projectConfig.servers) {
