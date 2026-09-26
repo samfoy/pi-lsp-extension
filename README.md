@@ -169,6 +169,16 @@ The config file is loaded once at session start. Changes require restarting the 
 
 This starts jdtls as soon as the session begins, so by the time you need `lsp_diagnostics` or `lsp_hover`, the server is already warm.
 
+### Project trust
+
+`.pi-lsp.json` can point `servers` at arbitrary commands (and `lombokJar` at a
+repository jar) — code execution from repository contents. If the project
+requires trust (e.g. it contains `.pi/settings.json`) and the session is not
+trusted, the whole project config is ignored with a one-line notice
+(`LSP: ignored .pi-lsp.json (project not trusted)`) and the built-in
+PATH-based defaults stay in effect. Projects without trust-requiring
+resources are trusted by pi, so their configs keep working unchanged.
+
 ## Architecture
 
 ```

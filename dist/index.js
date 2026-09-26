@@ -4634,6 +4634,10 @@ function lspExtension(pi) {
       ctx.ui.setStatus("lsp", ctx.ui.theme.fg("dim", "LSP: idle"));
     }
     projectConfig = loadProjectConfig(ctx.cwd);
+    if (projectConfig && !ctx.isProjectTrusted()) {
+      projectConfig = null;
+      ctx.ui.notify("LSP: ignored .pi-lsp.json (project not trusted)", "info");
+    }
     if (projectConfig) {
       if (projectConfig.servers) {
         for (const [lang, serverConf] of Object.entries(projectConfig.servers)) {

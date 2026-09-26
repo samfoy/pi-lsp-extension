@@ -109,7 +109,7 @@ test("tools start servers through the extension with one successful workspace se
     on: (event: string, h: Function) => handlers.set(event, [...(handlers.get(event) ?? []), h]),
   } as any);
   const statuses: string[] = [];
-  const ctx = { cwd, ui: { theme: { fg: (_c: string, text: string) => text }, setStatus: (_k: string, text: string) => statuses.push(text), notify() {} } };
+  const ctx = { cwd, isProjectTrusted: () => true, ui: { theme: { fg: (_c: string, text: string) => text }, setStatus: (_k: string, text: string) => statuses.push(text), notify() {} } };
   const emit = async (event: string) => { for (const h of handlers.get(event) ?? []) await h({ type: event }, ctx); };
   try {
     await emit("session_start");
