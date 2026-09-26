@@ -4485,9 +4485,9 @@ ${text}`;
 // src/index.ts
 import { relative as relative10 } from "node:path";
 import { existsSync as existsSync3, readFileSync as readFileSync2 } from "node:fs";
+import { homedir } from "node:os";
 import { join as join2 } from "node:path";
-function loadProjectConfig(dir) {
-  const configPath = join2(dir, ".pi-lsp.json");
+function loadConfigFile(configPath) {
   try {
     if (!existsSync3(configPath)) return null;
     const raw = readFileSync2(configPath, "utf-8");
@@ -4497,6 +4497,25 @@ function loadProjectConfig(dir) {
   } catch {
     return null;
   }
+}
+function loadProjectConfig(dir) {
+  return loadConfigFile(join2(dir, ".pi-lsp.json"));
+}
+function resolveUserConfigPath(env = process.env, home = homedir()) {
+  const dir = env.PI_CODING_AGENT_DIR ?? join2(home, ".pi", "agent");
+  return join2(dir, "pi-lsp.json");
+}
+function loadUserConfig() {
+  return loadConfigFile(resolveUserConfigPath());
+}
+function mergeConfigs(user, project) {
+  if (!user) return project;
+  if (!project) return user;
+  const merged = { ...user, ...project };
+  if (user.servers || project.servers) {
+    merged.servers = { ...user.servers, ...project.servers };
+  }
+  return merged;
 }
 function lspExtension(pi) {
   const origListeners = process.listeners("uncaughtException");
@@ -4633,7 +4652,7 @@ function lspExtension(pi) {
     } else {
       ctx.ui.setStatus("lsp", ctx.ui.theme.fg("dim", "LSP: idle"));
     }
-    projectConfig = loadProjectConfig(ctx.cwd);
+    projectConfig = mergeConfigs(loadUserConfig(), loadProjectConfig(ctx.cwd));
     if (projectConfig) {
       if (projectConfig.servers) {
         for (const [lang, serverConf] of Object.entries(projectConfig.servers)) {
@@ -4896,5 +4915,8 @@ Lombok: ${lombokJar}` : "";
   });
 }
 export {
-  lspExtension as default
+  lspExtension as default,
+  loadUserConfig,
+  mergeConfigs,
+  resolveUserConfigPath
 };
