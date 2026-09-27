@@ -44,8 +44,37 @@ export const EXT_TO_LANGUAGE: Record<string, string> = {
   ".php": "php",
 };
 
-/** Get the language ID for a file path based on extension */
+/**
+ * Optional project-configured overrides, applied over EXT_TO_LANGUAGE.
+ * Set via `.pi-lsp.json` (`extensions` / `filenames`) at session start.
+ * Keys of `extensions` are normalized to `.lowercase` form; keys of
+ * `filenames` are matched case-sensitively against the basename.
+ */
+let EXTENSION_OVERRIDES: Record<string, string> = {};
+let FILENAME_OVERRIDES: Record<string, string> = {};
+
+/**
+ * Install override mappings from project config. Replaces any previously
+ * installed overrides (call once per session start; {} clears them).
+ */
+export function setLanguageMapOverrides(overrides: {
+  extensions?: Record<string, string>;
+  filenames?: Record<string, string>;
+}): void {
+  EXTENSION_OVERRIDES = {};
+  for (const [ext, lang] of Object.entries(overrides.extensions ?? {})) {
+    const key = ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+    EXTENSION_OVERRIDES[key] = lang;
+  }
+  FILENAME_OVERRIDES = { ...(overrides.filenames ?? {}) };
+}
+
+/** Get the language ID for a file path based on filename or extension */
 export function getLanguageIdFromPath(filePath: string): string | undefined {
-  const ext = filePath.match(/\.[^.]+$/)?.[0]?.toLowerCase();
-  return ext ? EXT_TO_LANGUAGE[ext] : undefined;
+  const base = filePath.split(/[\\/]/).pop() ?? "";
+  const byName = FILENAME_OVERRIDES[base];
+  if (byName) return byName;
+  const ext = base.match(/\.[^.]+$/)?.[0]?.toLowerCase();
+  if (!ext) return undefined;
+  return EXTENSION_OVERRIDES[ext] ?? EXT_TO_LANGUAGE[ext];
 }
