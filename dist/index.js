@@ -402,9 +402,23 @@ var EXT_TO_LANGUAGE = {
   ".vue": "vue",
   ".php": "php"
 };
+var EXTENSION_OVERRIDES = {};
+var FILENAME_OVERRIDES = {};
+function setLanguageMapOverrides(overrides) {
+  EXTENSION_OVERRIDES = {};
+  for (const [ext, lang] of Object.entries(overrides.extensions ?? {})) {
+    const key = ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+    EXTENSION_OVERRIDES[key] = lang;
+  }
+  FILENAME_OVERRIDES = { ...overrides.filenames ?? {} };
+}
 function getLanguageIdFromPath(filePath) {
-  const ext = filePath.match(/\.[^.]+$/)?.[0]?.toLowerCase();
-  return ext ? EXT_TO_LANGUAGE[ext] : void 0;
+  const base = filePath.split(/[\\/]/).pop() ?? "";
+  const byName = FILENAME_OVERRIDES[base];
+  if (byName) return byName;
+  const ext = base.match(/\.[^.]+$/)?.[0]?.toLowerCase();
+  if (!ext) return void 0;
+  return EXTENSION_OVERRIDES[ext] ?? EXT_TO_LANGUAGE[ext];
 }
 
 // src/shared/timing.ts
@@ -4635,6 +4649,12 @@ function lspExtension(pi) {
     }
     projectConfig = loadProjectConfig(ctx.cwd);
     if (projectConfig) {
+      if (projectConfig.extensions || projectConfig.filenames) {
+        setLanguageMapOverrides({
+          extensions: projectConfig.extensions,
+          filenames: projectConfig.filenames
+        });
+      }
       if (projectConfig.servers) {
         for (const [lang, serverConf] of Object.entries(projectConfig.servers)) {
           manager.setServerConfig(lang, {

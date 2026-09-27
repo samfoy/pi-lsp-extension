@@ -50,6 +50,7 @@ import { relative } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DIAGNOSTIC_SETTLE_DELAY_MS } from "./shared/timing.js";
+import { setLanguageMapOverrides } from "./shared/language-map.js";
 
 /**
  * Project-level LSP config — loaded from `.pi-lsp.json` in the workspace root.
@@ -83,6 +84,18 @@ interface ProjectLspConfig {
    *   ["typescript"]    — only inject for TypeScript files
    */
   autoInjectDiagnostics?: boolean | string[];
+  /**
+   * Extra file extension → language ID mappings, applied over the built-in
+   * table. Keys may be with or without a leading dot (case-insensitive).
+   * Example: { ".qml": "qml", ".md": "markdown" }
+   */
+  extensions?: Record<string, string>;
+  /**
+   * Exact file basename → language ID mappings, matched case-sensitively
+   * before the extension lookup. Covers names like "CMakeLists.txt".
+   * Example: { "CMakeLists.txt": "cmake" }
+   */
+  filenames?: Record<string, string>;
 }
 
 /** Load .pi-lsp.json from a directory. Returns null if not found or invalid. */
@@ -281,6 +294,14 @@ export default function lspExtension(pi: ExtensionAPI) {
     // Load project config and apply settings
     projectConfig = loadProjectConfig(ctx.cwd);
     if (projectConfig) {
+      // Apply file-type → language-ID overrides before any server lookups
+      if (projectConfig.extensions || projectConfig.filenames) {
+        setLanguageMapOverrides({
+          extensions: projectConfig.extensions,
+          filenames: projectConfig.filenames,
+        });
+      }
+
       // Apply custom server configs
       if (projectConfig.servers) {
         for (const [lang, serverConf] of Object.entries(projectConfig.servers)) {

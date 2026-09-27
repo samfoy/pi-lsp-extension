@@ -146,7 +146,9 @@ Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-
   "autoInjectDiagnostics": ["typescript"],
   "servers": {
     "python": { "command": "pylsp", "args": [] }
-  }
+  },
+  "extensions": { ".qml": "qml", ".md": "markdown" },
+  "filenames": { "CMakeLists.txt": "cmake" }
 }
 ```
 
@@ -156,6 +158,8 @@ Create a `.pi-lsp.json` file in your project root to configure LSP behavior per-
 | `lombokJar` | Path to a Lombok jar (absolute or relative to project root), or `"auto"` to auto-detect in Brazil workspaces. Applied before auto-start so jdtls launches with the correct `-javaagent` flag. |
 | `autoInjectDiagnostics` | Controls whether LSP errors are auto-appended to `write`/`edit` tool results. `true` (default) enables for all languages, `false` disables entirely, or pass an array of language IDs (e.g. `["typescript"]`) to enable selectively. Disable for Java/Brazil workspaces where Lombok and dependency-chain false positives create noise. |
 | `servers` | Custom server configs keyed by language ID. Overrides the built-in defaults. Each entry has `command`, optional `args` (string array), optional `env` (key-value pairs), optional `initializationOptions` (sent with `initialize`; see [Java Import Exclusions](#java-import-exclusions)), and optional `settings` (answers to `workspace/configuration`). |
+| `extensions` | Extra file extension → language ID mappings applied over the built-in table, e.g. `{ ".qml": "qml", ".md": "markdown" }`. Keys may be with or without a leading dot; matching is case-insensitive. Lets file types outside the built-in table reach servers configured in `servers`. |
+| `filenames` | Exact file basename → language ID mappings, matched case-sensitively before the extension lookup, e.g. `{ "CMakeLists.txt": "cmake" }`. Covers names whose extension would map elsewhere (or nowhere). |
 
 The config file is loaded once at session start. Changes require restarting the pi session.
 
