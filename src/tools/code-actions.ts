@@ -141,7 +141,7 @@ export function createCodeActionsTool(
         return { content: [{ type: "text", text: "Either line/character or query is required." }], details: { count: 0, preferredCount: 0 } };
       }
 
-      const client = await manager.getClientForFile(filePath).catch(() => null);
+      const client = await manager.getReadyClientForFile(filePath);
       if (!client) {
         return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { count: 0, preferredCount: 0 } };
       }

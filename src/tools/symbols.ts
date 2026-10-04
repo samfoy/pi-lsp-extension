@@ -100,7 +100,7 @@ export function createSymbolsTool(
 
       // Document symbols
       if (filePath) {
-        const client = await manager.getClientForFile(filePath).catch(() => null);
+        const client = await manager.getReadyClientForFile(filePath);
         if (client) {
           // LSP path
           const uri = manager.getFileUri(filePath);

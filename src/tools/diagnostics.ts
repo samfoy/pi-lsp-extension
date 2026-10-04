@@ -28,6 +28,15 @@ function severityToString(severity: number | undefined): string {
   }
 }
 
+/** Tell the agent a tree-sitter answer is provisional while the real server starts. */
+function startingHint(manager: LspManager, filePath: string): string {
+  const languageId = manager.getLanguageId(filePath);
+  if (languageId && manager.isServerStarting(languageId)) {
+    return ` — the ${languageId} LSP server is starting; retry for type errors`;
+  }
+  return "";
+}
+
 function formatDiagnostic(diag: Diagnostic, filePath: string): string {
   const line = diag.range.start.line + 1;
   const col = diag.range.start.character + 1;
@@ -36,6 +45,9 @@ function formatDiagnostic(diag: Diagnostic, filePath: string): string {
   const code = diag.code !== undefined ? ` (${diag.code})` : "";
   return `${filePath}:${line}:${col} ${sev}: ${diag.message}${code}${source}`;
 }
+
+/** How long to wait for a pushed report after opening a document. */
+const DIAGNOSTICS_WAIT_MS = 8_000;
 
 const DiagnosticsParams = Type.Object({
   path: Type.String({ description: "File path to get diagnostics for. Pass \"*\" to get all workspace diagnostics from all running LSP servers." }),
@@ -63,7 +75,7 @@ export function createDiagnosticsTool(
     ],
     parameters: DiagnosticsParams,
 
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, signal) {
       const filePath = params.path.replace(/^@/, "");
 
       // Workspace-wide mode
@@ -73,9 +85,40 @@ export function createDiagnosticsTool(
       const client = await manager.getClientForFile(filePath).catch(() => null);
 
       if (client) {
-        // LSP path
+        // LSP path. Open the document first: servers like typescript-language-server and
+        // kotlin-lsp only analyze opened documents, so an unopened file looks clean forever.
         const uri = manager.getFileUri(filePath);
-        const diagnostics = client.getDiagnostics(uri);
+        const opened = await manager.openDocument(filePath, client);
+
+        let diagnostics: Diagnostic[];
+        if (client.supportsPullDiagnostics) {
+          // Pull servers answer on request; retry once (ServerCancelled/ContentModified while indexing).
+          let pulled = await client.pullDiagnostics(uri, DIAGNOSTICS_WAIT_MS, signal);
+          if (pulled === null && !signal?.aborted) {
+            await new Promise((r) => setTimeout(r, 500));
+            pulled = await client.pullDiagnostics(uri, DIAGNOSTICS_WAIT_MS, signal);
+          }
+          if (pulled === null) {
+            return {
+              content: [{ type: "text", text: "The server did not answer the diagnostics request (it may still be indexing). Retry shortly; this is not a clean result." }],
+              details: { count: 0 },
+            };
+          }
+          diagnostics = pulled;
+        } else {
+          // Push servers: after opening, wait for the first report. An already-open document with no
+          // report means the server has nothing to say about it (some servers only publish problems).
+          if (opened) await client.waitForDiagnostics(uri, DIAGNOSTICS_WAIT_MS, signal);
+          if (!client.hasDiagnostics(uri)) {
+            return {
+              content: [{ type: "text", text: opened
+                ? "No diagnostics received yet for this file — the server may still be analyzing it. Retry shortly; this is not a clean result."
+                : "The server has not reported diagnostics for this file." }],
+              details: { count: 0 },
+            };
+          }
+          diagnostics = client.getDiagnostics(uri);
+        }
 
         if (diagnostics.length === 0) {
           return { content: [{ type: "text", text: "No diagnostics (clean)." }], details: { count: 0 } };
@@ -119,7 +162,7 @@ export function createDiagnosticsTool(
             if (tree) {
               const syntaxErrors = getSyntaxErrors(tree);
               if (syntaxErrors.length === 0) {
-                return { content: [{ type: "text", text: "No syntax errors detected. [tree-sitter — syntax only, no type checking]" }], details: { count: 0 } };
+                return { content: [{ type: "text", text: `No syntax errors detected. [tree-sitter — syntax only, no type checking]${startingHint(manager, filePath)}` }], details: { count: 0 } };
               }
               const relPath = relative(manager.resolvePath("."), absPath);
               const lines = syntaxErrors.map((e) =>
@@ -127,7 +170,7 @@ export function createDiagnosticsTool(
               );
               const output = lines.join("\n");
               const truncation = truncateHead(output, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
-              let resultText = `${syntaxErrors.length} syntax error(s) [tree-sitter — syntax only, no type checking]\n\n${truncation.content}`;
+              let resultText = `${syntaxErrors.length} syntax error(s) [tree-sitter — syntax only, no type checking]${startingHint(manager, filePath)}\n\n${truncation.content}`;
               if (truncation.truncated) {
                 resultText += `\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} diagnostics]`;
               }

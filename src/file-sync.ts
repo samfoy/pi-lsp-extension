@@ -9,6 +9,7 @@
  * prevent unbounded memory growth in the LSP server during long sessions.
  */
 
+import type { LspClient } from "./lsp-client.js";
 import { readFile } from "node:fs/promises";
 import { LspManager } from "./lsp-manager.js";
 import type { TreeSitterManager } from "./tree-sitter/parser-manager.js";
@@ -24,6 +25,8 @@ interface TrackedDocument {
   uri: string;
   languageId: string;
   version: number;
+  /** The client the document was opened on; a replaced (restarted) client needs its own didOpen. */
+  client: LspClient;
 }
 
 export class FileSync {
@@ -33,9 +36,12 @@ export class FileSync {
   private workspaceIndex: WorkspaceIndex | null = null;
   private isSyntheticDotActive: SyntheticDotChecker = () => false;
   private maxTracked: number;
+  /** Opens in flight, so concurrent callers share one didOpen per URI. */
+  private opening: Map<string, Promise<boolean>> = new Map();
 
   constructor(private manager: LspManager, maxTracked?: number) {
     this.maxTracked = maxTracked ?? MAX_TRACKED_DOCUMENTS;
+    manager.setDocumentOpener((filePath, client) => this.ensureOpen(filePath, client));
   }
 
   /** Set the synthetic dot checker to coordinate with the completions tool */
@@ -68,9 +74,9 @@ export class FileSync {
       const [evictUri, evictDoc] = oldest.value;
       this.tracked.delete(evictUri);
 
-      // Send didClose to the appropriate LSP server
-      const client = this.manager.getRunningClient(evictDoc.languageId);
-      if (client) {
+      // Send didClose to the server the document was opened on, if it is still alive
+      const client = evictDoc.client;
+      if (client && !client.disposed) {
         client.didClose(evictUri);
       }
     }
@@ -82,30 +88,50 @@ export class FileSync {
    */
   async handleFileRead(filePath: string): Promise<void> {
     const absPath = this.manager.resolvePath(filePath);
-    const uri = this.manager.getFileUri(absPath);
-
-    // Already tracked? Just touch it for LRU freshness.
-    if (this.tracked.has(uri)) {
-      this.touchAndEvict(uri);
-      return;
-    }
-
     const languageId = this.manager.getLanguageId(absPath);
     if (!languageId) return;
-
-    // Only sync if we have a client already running for this language (don't start one just for a read)
+    // Only sync if a client is already running for this language (don't start one just for a read)
     const client = this.manager.getRunningClient(languageId);
     if (!client) return;
+    await this.ensureOpen(absPath, client);
+  }
 
-    try {
-      const content = await readFile(absPath, "utf-8");
-      const doc: TrackedDocument = { uri, languageId, version: 1 };
-      this.tracked.set(uri, doc);
-      client.didOpen(uri, languageId, doc.version, content);
+  /**
+   * Make sure a document is open on the given client before a request about it.
+   * Servers such as typescript-language-server and kotlin-lsp only analyze opened
+   * documents, so tools must open the file themselves when pi has not synced it yet
+   * (handleFileRead skips files read before the server was running).
+   * Returns true if this call opened the document.
+   */
+  async ensureOpen(filePath: string, client: LspClient): Promise<boolean> {
+    const absPath = this.manager.resolvePath(filePath);
+    const uri = this.manager.getFileUri(absPath);
+    const existing = this.tracked.get(uri);
+    if (existing && existing.client === client) {
       this.touchAndEvict(uri);
-    } catch {
-      // File might not exist or be unreadable — ignore
+      return false;
     }
+    const pending = this.opening.get(uri);
+    if (pending) return pending;
+    const languageId = this.manager.getLanguageId(absPath);
+    if (!languageId) return false;
+    const open = (async () => {
+      try {
+        const content = await readFile(absPath, "utf-8");
+        // Drop any report from a previous open (or a previous client) so callers wait for a fresh one.
+        client.clearDiagnostics(uri);
+        this.tracked.set(uri, { uri, languageId, version: 1, client });
+        client.didOpen(uri, languageId, 1, content);
+        this.touchAndEvict(uri);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.opening.delete(uri);
+      }
+    })();
+    this.opening.set(uri, open);
+    return open;
   }
 
   /**
@@ -147,20 +173,17 @@ export class FileSync {
     const client = await this.manager.getClientForFile(absPath).catch(() => null);
     if (!client) return;
 
+    const existing = this.tracked.get(uri);
+    if (!existing || existing.client !== client) {
+      // Not open on this client yet (first write, or the server was restarted): open it.
+      await this.ensureOpen(absPath, client);
+      return;
+    }
     try {
       const content = await readFile(absPath, "utf-8");
-      const existing = this.tracked.get(uri);
-
-      if (existing) {
-        // Already open — send didChange with incremented version
-        existing.version++;
-        client.didChange(uri, existing.version, content);
-      } else {
-        // First time — send didOpen
-        const doc: TrackedDocument = { uri, languageId, version: 1 };
-        this.tracked.set(uri, doc);
-        client.didOpen(uri, languageId, doc.version, content);
-      }
+      // Already open — send didChange with incremented version
+      existing.version++;
+      client.didChange(uri, existing.version, content);
       this.touchAndEvict(uri);
     } catch {
       // File might not exist or be unreadable — ignore

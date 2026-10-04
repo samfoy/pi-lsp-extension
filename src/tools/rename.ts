@@ -98,7 +98,7 @@ export function createRenameTool(
         return { content: [{ type: "text", text: "Either line/character or query is required." }], details: { fileCount: 0, editCount: 0 } };
       }
 
-      const client = await manager.getClientForFile(filePath).catch(() => null);
+      const client = await manager.getReadyClientForFile(filePath);
       if (!client) {
         return { content: [{ type: "text", text: manager.getUnavailableReason(filePath) }], details: { fileCount: 0, editCount: 0 } };
       }
