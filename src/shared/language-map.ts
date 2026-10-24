@@ -42,6 +42,7 @@ export const EXT_TO_LANGUAGE: Record<string, string> = {
   ".css": "css",
   ".vue": "vue",
   ".php": "php",
+  ".tex": "latex",
 };
 
 /** Get the language ID for a file path based on extension */

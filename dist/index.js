@@ -400,7 +400,8 @@ var EXT_TO_LANGUAGE = {
   ".htm": "html",
   ".css": "css",
   ".vue": "vue",
-  ".php": "php"
+  ".php": "php",
+  ".tex": "latex"
 };
 function getLanguageIdFromPath(filePath) {
   const ext = filePath.match(/\.[^.]+$/)?.[0]?.toLowerCase();
