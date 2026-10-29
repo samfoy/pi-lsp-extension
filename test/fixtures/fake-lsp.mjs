@@ -5,10 +5,13 @@ const send = (msg) => {
   process.stdout.write(`Content-Length: ${body.length}\r\n\r\n`);
   process.stdout.write(body);
 };
+const notifications = [];
 const handle = ({ id, method, params }) => {
   if (method === "exit") process.exit(0);
+  if (id === undefined && method) notifications.push(method);
   if (id === undefined || !method) return;
   if (method === "initialize") send({ id, result: { capabilities: { hoverProvider: true } } });
+  else if (method === "fake/notifications") send({ id, result: notifications });
   else if (method === "textDocument/hover") {
     const { line, character } = params.position;
     send({ id, result: { contents: { kind: "plaintext", value: `fake hover ${line}:${character}` } } });

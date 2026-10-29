@@ -345,6 +345,14 @@ export class LspClient {
 
     // Send initialized notification
     this.connection.sendNotification("initialized", {});
+    // pyright and basedpyright skip their own settings load when the client
+    // advertises workspace.workspaceFolders (which we do above) and then wait
+    // for a configuration push before answering any request. Without this
+    // every position tool blocks until shutdown. Servers that pull settings
+    // through workspace/configuration ignore the push.
+    this.connection.sendNotification("workspace/didChangeConfiguration", {
+      settings: this.options.settings ?? {},
+    });
     this._initialized = true;
   }
 
