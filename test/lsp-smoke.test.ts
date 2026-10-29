@@ -56,6 +56,24 @@ test("the built daemon serves a fake LSP server over its socket", { timeout: 20_
   }
 });
 
+test("the client pushes its configuration right after initialized", { timeout: 10_000 }, async () => {
+  // pyright waits for workspace/didChangeConfiguration when the client advertises
+  // workspace folders; without the push every request blocks until shutdown.
+  const dir = mkdtempSync(join(tmpdir(), "pi-lsp-config-push-"));
+  const client = new LspClient({
+    command: process.execPath, args: [FAKE_LSP], rootDir: dir, languageId: "fake",
+    settings: { fake: { enabled: true } },
+  });
+  try {
+    await client.start();
+    const seen = await client.sendRequest<string[]>("fake/notifications", {});
+    assert.deepEqual(seen.slice(0, 2), ["initialized", "workspace/didChangeConfiguration"]);
+  } finally {
+    await client.shutdown();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a failed daemon socket connect leaves no timer pending", { timeout: 5_000, skip: process.platform === "win32" }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-lsp-nosock-"));
   const client = new LspClient({ command: "unused", args: [], rootDir: dir, languageId: "fake", socketPath: join(dir, "missing.sock") });

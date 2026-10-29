@@ -261,6 +261,9 @@ var LspClient = class {
     );
     this._serverCapabilities = result.capabilities;
     this.connection.sendNotification("initialized", {});
+    this.connection.sendNotification("workspace/didChangeConfiguration", {
+      settings: this.options.settings ?? {}
+    });
     this._initialized = true;
   }
   /** Safely dispose the connection without throwing */
