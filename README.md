@@ -61,6 +61,7 @@ Install the language server you need, then it works automatically:
 | Rust | `rust-analyzer` | [rustup](https://rustup.rs/) |
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 | Java | `jdtls` | [Eclipse JDT.LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) |
+| C# | `csharp-ls` | `dotnet tool install --global csharp-ls` |
 
 Add more at runtime:
 

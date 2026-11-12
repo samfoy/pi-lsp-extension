@@ -25,6 +25,8 @@ import {
   SocketMessageReader,
   SocketMessageWriter
 } from "vscode-languageserver-protocol/node";
+var STDERR_KEEP_CHARS = 6e3;
+var STDERR_REPORT_CHARS = 900;
 var LspClient = class {
   constructor(options) {
     this.options = options;
@@ -38,6 +40,7 @@ var LspClient = class {
   connection = null;
   _serverCapabilities = null;
   _diagnostics = /* @__PURE__ */ new Map();
+  stderrHead = "";
   _initialized = false;
   _disposed = false;
   /** True if connected to a daemon socket (server init handled by daemon) */
@@ -65,10 +68,17 @@ var LspClient = class {
   /** Start the LSP server and perform the initialize handshake */
   async start() {
     if (this._initialized || this._disposed) return;
-    if (this.options.socketPath) {
-      await this.connectToSocket(this.options.socketPath);
-    } else {
-      await this.spawnDirect();
+    try {
+      if (this.options.socketPath) {
+        await this.connectToSocket(this.options.socketPath);
+      } else {
+        await this.spawnDirect();
+      }
+    } catch (err) {
+      const detail = this.startFailureDetail();
+      if (detail) err.message = `${err.message}
+Server stderr: ${detail}`;
+      throw err;
     }
   }
   /** Register shared connection handlers (diagnostics, workspace/configuration, errors) */
@@ -172,7 +182,11 @@ var LspClient = class {
       this.process.on("spawn", onSpawn);
       this.process.on("error", onError);
     });
-    this.process.stderr?.resume();
+    this.process.stderr?.on("data", (chunk) => {
+      if (this.stderrHead.length < STDERR_KEEP_CHARS) {
+        this.stderrHead = (this.stderrHead + chunk.toString()).slice(0, STDERR_KEEP_CHARS);
+      }
+    });
     const stdin = this.process.stdin;
     const originalWrite = stdin.write;
     stdin.write = function(...args) {
@@ -262,6 +276,12 @@ var LspClient = class {
     this._serverCapabilities = result.capabilities;
     this.connection.sendNotification("initialized", {});
     this._initialized = true;
+  }
+  /** The server's first error-level log entry, or its first output if it logged none. */
+  startFailureDetail() {
+    const failure = /^[^\r\n]*\b(?:fail|crit|error):/im.exec(this.stderrHead);
+    const from = failure ? failure.index : 0;
+    return this.stderrHead.slice(from, from + STDERR_REPORT_CHARS).trim();
   }
   /** Safely dispose the connection without throwing */
   disposeConnection() {
@@ -440,13 +460,16 @@ var DEFAULT_SERVERS = {
   rust: { command: "rust-analyzer", args: [] },
   python: { command: "pyright-langserver", args: ["--stdio"] },
   go: { command: "gopls", args: ["serve"] },
-  java: { command: "jdtls", args: [] }
+  java: { command: "jdtls", args: [] },
+  csharp: { command: "csharp-ls", args: [] }
 };
 var LspManager = class _LspManager {
   clients = /* @__PURE__ */ new Map();
   serverConfigs;
   rootDir;
   startingServers = /* @__PURE__ */ new Map();
+  /** Why the most recent start attempt failed, per language. Reported by getUnavailableReason. */
+  lastStartError = /* @__PURE__ */ new Map();
   _workspace;
   _workspaceReady = false;
   _workspaceReadying = null;
@@ -690,14 +713,18 @@ var LspManager = class _LspManager {
     const languageId = this.getLanguageId(filePath);
     if (!languageId) return `No LSP server configured for file type: ${filePath}`;
     const waitHint = this.getExpectedStartTime(languageId);
+    const failure = this.lastStartError.get(languageId);
+    const failureNote = failure ? `
+
+The previous start attempt failed and this is a retry. ${failure}` : "";
     if (this.startingServers.has(languageId)) {
-      return `LSP server for ${languageId} is starting. ${waitHint} Retry shortly.`;
+      return `LSP server for ${languageId} is starting. ${waitHint} Retry shortly.${failureNote}`;
     }
     const existing = this.clients.get(languageId);
     if (existing && !existing.initialized && !existing.disposed) {
-      return `LSP server for ${languageId} is initializing. ${waitHint} Retry shortly.`;
+      return `LSP server for ${languageId} is initializing. ${waitHint} Retry shortly.${failureNote}`;
     }
-    return `No LSP server available for: ${filePath}. If you just opened this project, call any LSP tool on a file to trigger server startup.`;
+    return `No LSP server available for: ${filePath}. If you just opened this project, call any LSP tool on a file to trigger server startup.${failureNote}`;
   }
   /** Estimated startup time hint for a language server */
   getExpectedStartTime(languageId) {
@@ -890,6 +917,7 @@ var LspManager = class _LspManager {
       await client.start();
       this.clients.set(languageId, client);
       this.startingServers.delete(languageId);
+      this.lastStartError.delete(languageId);
       this._callbacks.onServerReady?.(languageId);
       this._restartAttempts.delete(languageId);
       this._restartBackoff.delete(languageId);
@@ -898,6 +926,7 @@ var LspManager = class _LspManager {
     } catch (err) {
       this.startingServers.delete(languageId);
       const message = `Failed to start LSP server for ${languageId} (${config.command}): ${err.message}`;
+      this.lastStartError.set(languageId, message);
       this._callbacks.onServerError?.(languageId, message);
       throw new Error(message);
     }
@@ -4692,6 +4721,15 @@ function lspExtension(pi) {
     }
   }));
   pi.registerTool(createCodeActionsTool(managerProxy, treeSitterProxy));
+  pi.on("tool_call", async (event) => {
+    if (!event.toolName.startsWith("lsp_")) return;
+    const path = event.input?.path;
+    if (typeof path !== "string" || path === "*" || path === "") return;
+    try {
+      await getFileSync().handleFileRead(path.replace(/^@/, ""));
+    } catch {
+    }
+  });
   pi.on("tool_result", async (event) => {
     const sync = getFileSync();
     try {

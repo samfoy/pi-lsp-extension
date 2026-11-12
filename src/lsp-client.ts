@@ -51,12 +51,18 @@ export interface LspClientOptions {
   onUnexpectedExit?: (code: number | null) => void;
 }
 
+/** How much leading server stderr to keep for start-failure messages. */
+const STDERR_KEEP_CHARS = 6000;
+/** How much of the stderr to include in a start-failure message. */
+const STDERR_REPORT_CHARS = 900;
+
 export class LspClient {
   private process: ChildProcess | null = null;
   private socket: Socket | null = null;
   private connection: MessageConnection | null = null;
   private _serverCapabilities: ServerCapabilities | null = null;
   private _diagnostics: Map<string, Diagnostic[]> = new Map();
+  private stderrHead = "";
   private _initialized = false;
   private _disposed = false;
   /** True if connected to a daemon socket (server init handled by daemon) */
@@ -98,10 +104,17 @@ export class LspClient {
   async start(): Promise<void> {
     if (this._initialized || this._disposed) return;
 
-    if (this.options.socketPath) {
-      await this.connectToSocket(this.options.socketPath);
-    } else {
-      await this.spawnDirect();
+    try {
+      if (this.options.socketPath) {
+        await this.connectToSocket(this.options.socketPath);
+      } else {
+        await this.spawnDirect();
+      }
+    } catch (err: any) {
+      // The JSON-RPC error is often generic ("Internal error"); the reason is on stderr.
+      const detail = this.startFailureDetail();
+      if (detail) err.message = `${err.message}\nServer stderr: ${detail}`;
+      throw err;
     }
   }
 
@@ -227,8 +240,14 @@ export class LspClient {
       this.process!.on("error", onError);
     });
 
-    // Discard stderr to prevent blocking
-    this.process.stderr?.resume();
+    // Drain stderr so the server can't block on a full pipe. Keep the first STDERR_KEEP_CHARS: a failed
+    // start is reported from it (e.g. csharp-ls: "A compatible .NET SDK was not found"), and the
+    // cause is logged before any stack trace that follows.
+    this.process.stderr?.on("data", (chunk: Buffer) => {
+      if (this.stderrHead.length < STDERR_KEEP_CHARS) {
+        this.stderrHead = (this.stderrHead + chunk.toString()).slice(0, STDERR_KEEP_CHARS);
+      }
+    });
 
     // Patch stdin.write to silently drop writes when the stream is destroyed.
     // StreamMessageWriter wraps stdin and calls write() which returns a Promise.
@@ -346,6 +365,13 @@ export class LspClient {
     // Send initialized notification
     this.connection.sendNotification("initialized", {});
     this._initialized = true;
+  }
+
+  /** The server's first error-level log entry, or its first output if it logged none. */
+  private startFailureDetail(): string {
+    const failure = /^[^\r\n]*\b(?:fail|crit|error):/im.exec(this.stderrHead);
+    const from = failure ? failure.index : 0;
+    return this.stderrHead.slice(from, from + STDERR_REPORT_CHARS).trim();
   }
 
   /** Safely dispose the connection without throwing */

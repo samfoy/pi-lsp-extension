@@ -88,6 +88,7 @@ const DEFAULT_SERVERS: Record<string, ServerConfig> = {
   python: { command: "pyright-langserver", args: ["--stdio"] },
   go: { command: "gopls", args: ["serve"] },
   java: { command: "jdtls", args: [] },
+  csharp: { command: "csharp-ls", args: [] },
 };
 
 // File extension → language ID mapping is in shared/language-map.ts
@@ -106,6 +107,8 @@ export class LspManager {
   private serverConfigs: Map<string, ServerConfig>;
   private rootDir: string;
   private startingServers: Map<string, Promise<LspClient>> = new Map();
+  /** Why the most recent start attempt failed, per language. Reported by getUnavailableReason. */
+  private lastStartError: Map<string, string> = new Map();
   private _workspace: WorkspaceProvider;
   private _workspaceReady = false;
   private _workspaceReadying: Promise<boolean> | null = null;
@@ -380,14 +383,18 @@ export class LspManager {
     const languageId = this.getLanguageId(filePath);
     if (!languageId) return `No LSP server configured for file type: ${filePath}`;
     const waitHint = this.getExpectedStartTime(languageId);
+    // A failed attempt is retried on the next tool call, so "starting" alone would hide a server
+    // that fails every time. Say why the previous attempt failed.
+    const failure = this.lastStartError.get(languageId);
+    const failureNote = failure ? `\n\nThe previous start attempt failed and this is a retry. ${failure}` : "";
     if (this.startingServers.has(languageId)) {
-      return `LSP server for ${languageId} is starting. ${waitHint} Retry shortly.`;
+      return `LSP server for ${languageId} is starting. ${waitHint} Retry shortly.${failureNote}`;
     }
     const existing = this.clients.get(languageId);
     if (existing && !existing.initialized && !existing.disposed) {
-      return `LSP server for ${languageId} is initializing. ${waitHint} Retry shortly.`;
+      return `LSP server for ${languageId} is initializing. ${waitHint} Retry shortly.${failureNote}`;
     }
-    return `No LSP server available for: ${filePath}. If you just opened this project, call any LSP tool on a file to trigger server startup.`;
+    return `No LSP server available for: ${filePath}. If you just opened this project, call any LSP tool on a file to trigger server startup.${failureNote}`;
   }
 
   /** Estimated startup time hint for a language server */
@@ -629,6 +636,7 @@ export class LspManager {
       await client.start();
       this.clients.set(languageId, client);
       this.startingServers.delete(languageId);
+      this.lastStartError.delete(languageId);
       this._callbacks.onServerReady?.(languageId);
       this._restartAttempts.delete(languageId);
       this._restartBackoff.delete(languageId);
@@ -637,6 +645,7 @@ export class LspManager {
     } catch (err: any) {
       this.startingServers.delete(languageId);
       const message = `Failed to start LSP server for ${languageId} (${config.command}): ${err.message}`;
+      this.lastStartError.set(languageId, message);
       this._callbacks.onServerError?.(languageId, message);
       throw new Error(message);
     }
