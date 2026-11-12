@@ -440,7 +440,8 @@ var DEFAULT_SERVERS = {
   rust: { command: "rust-analyzer", args: [] },
   python: { command: "pyright-langserver", args: ["--stdio"] },
   go: { command: "gopls", args: ["serve"] },
-  java: { command: "jdtls", args: [] }
+  java: { command: "jdtls", args: [] },
+  csharp: { command: "csharp-ls", args: [] }
 };
 var LspManager = class _LspManager {
   clients = /* @__PURE__ */ new Map();
