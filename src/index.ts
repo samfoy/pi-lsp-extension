@@ -351,6 +351,20 @@ export default function lspExtension(pi: ExtensionAPI) {
   }));
   pi.registerTool(createCodeActionsTool(managerProxy, treeSitterProxy));
 
+  // Open the target file before an lsp_* tool runs. Servers start lazily on the first lsp_* call,
+  // so a file the agent read earlier was never opened; without this the retry returns empty
+  // diagnostics/hover. handleFileRead is a no-op until the server is running.
+  pi.on("tool_call", async (event) => {
+    if (!event.toolName.startsWith("lsp_")) return;
+    const path = (event.input as any)?.path;
+    if (typeof path !== "string" || path === "*" || path === "") return;
+    try {
+      await getFileSync().handleFileRead(path.replace(/^@/, ""));
+    } catch {
+      // File sync errors are non-fatal
+    }
+  });
+
   // File sync: track file reads/writes/edits
   // After writes/edits, append file-scoped error diagnostics to the tool result
   pi.on("tool_result", async (event) => {

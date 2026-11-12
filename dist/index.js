@@ -4693,6 +4693,15 @@ function lspExtension(pi) {
     }
   }));
   pi.registerTool(createCodeActionsTool(managerProxy, treeSitterProxy));
+  pi.on("tool_call", async (event) => {
+    if (!event.toolName.startsWith("lsp_")) return;
+    const path = event.input?.path;
+    if (typeof path !== "string" || path === "*" || path === "") return;
+    try {
+      await getFileSync().handleFileRead(path.replace(/^@/, ""));
+    } catch {
+    }
+  });
   pi.on("tool_result", async (event) => {
     const sync = getFileSync();
     try {
