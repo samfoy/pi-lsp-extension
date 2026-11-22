@@ -105,6 +105,20 @@ const RUBY_SYMBOLS: SymbolMapping[] = [
   { nodeType: "module", kind: SymbolKind.Module, recurse: true },
 ];
 
+const CSHARP_SYMBOLS: SymbolMapping[] = [
+  { nodeType: "namespace_declaration", kind: SymbolKind.Namespace, recurse: true },
+  { nodeType: "file_scoped_namespace_declaration", kind: SymbolKind.Namespace, recurse: true },
+  { nodeType: "class_declaration", kind: SymbolKind.Class, recurse: true },
+  { nodeType: "record_declaration", kind: SymbolKind.Class, recurse: true },
+  { nodeType: "struct_declaration", kind: SymbolKind.Struct, recurse: true },
+  { nodeType: "interface_declaration", kind: SymbolKind.Interface, recurse: true },
+  { nodeType: "enum_declaration", kind: SymbolKind.Enum, recurse: true },
+  { nodeType: "method_declaration", kind: SymbolKind.Method },
+  { nodeType: "constructor_declaration", kind: SymbolKind.Constructor },
+  { nodeType: "property_declaration", kind: SymbolKind.Property },
+  { nodeType: "field_declaration", kind: SymbolKind.Field },
+];
+
 const LANGUAGE_SYMBOLS: Record<string, SymbolMapping[]> = {
   typescript: TS_JS_SYMBOLS,
   typescriptreact: TS_JS_SYMBOLS,
@@ -117,6 +131,7 @@ const LANGUAGE_SYMBOLS: Record<string, SymbolMapping[]> = {
   c: C_CPP_SYMBOLS,
   cpp: C_CPP_SYMBOLS,
   ruby: RUBY_SYMBOLS,
+  csharp: CSHARP_SYMBOLS,
 };
 
 /**
@@ -221,10 +236,11 @@ function extractName(node: Node, mapping: SymbolMapping, languageId: string): st
       return null;
     }
     case "field_declaration": {
-      // Java: field declarations
-      const declarator = node.namedChildren.find((c) => c.type === "variable_declarator");
+      // Java: the declarators are children of the field. C#: they are inside a variable_declaration.
+      const holder = node.namedChildren.find((c) => c.type === "variable_declaration") ?? node;
+      const declarator = holder.namedChildren.find((c) => c.type === "variable_declarator");
       if (declarator) {
-        const n = declarator.childForFieldName("name");
+        const n = declarator.childForFieldName("name") ?? declarator.namedChildren.find((c) => c.type === "identifier");
         return n?.text ?? null;
       }
       return null;

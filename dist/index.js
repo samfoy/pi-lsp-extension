@@ -1239,7 +1239,8 @@ var LANGUAGE_TO_GRAMMAR = {
   bash: "tree-sitter-bash.wasm",
   json: "tree-sitter-json.wasm",
   html: "tree-sitter-html.wasm",
-  css: "tree-sitter-css.wasm"
+  css: "tree-sitter-css.wasm",
+  csharp: "tree-sitter-c_sharp.wasm"
 };
 var TreeSitterManager = class {
   initialized = false;
@@ -1459,6 +1460,19 @@ var RUBY_SYMBOLS = [
   { nodeType: "class", kind: SymbolKind.Class, recurse: true },
   { nodeType: "module", kind: SymbolKind.Module, recurse: true }
 ];
+var CSHARP_SYMBOLS = [
+  { nodeType: "namespace_declaration", kind: SymbolKind.Namespace, recurse: true },
+  { nodeType: "file_scoped_namespace_declaration", kind: SymbolKind.Namespace, recurse: true },
+  { nodeType: "class_declaration", kind: SymbolKind.Class, recurse: true },
+  { nodeType: "record_declaration", kind: SymbolKind.Class, recurse: true },
+  { nodeType: "struct_declaration", kind: SymbolKind.Struct, recurse: true },
+  { nodeType: "interface_declaration", kind: SymbolKind.Interface, recurse: true },
+  { nodeType: "enum_declaration", kind: SymbolKind.Enum, recurse: true },
+  { nodeType: "method_declaration", kind: SymbolKind.Method },
+  { nodeType: "constructor_declaration", kind: SymbolKind.Constructor },
+  { nodeType: "property_declaration", kind: SymbolKind.Property },
+  { nodeType: "field_declaration", kind: SymbolKind.Field }
+];
 var LANGUAGE_SYMBOLS = {
   typescript: TS_JS_SYMBOLS,
   typescriptreact: TS_JS_SYMBOLS,
@@ -1470,7 +1484,8 @@ var LANGUAGE_SYMBOLS = {
   java: JAVA_SYMBOLS,
   c: C_CPP_SYMBOLS,
   cpp: C_CPP_SYMBOLS,
-  ruby: RUBY_SYMBOLS
+  ruby: RUBY_SYMBOLS,
+  csharp: CSHARP_SYMBOLS
 };
 function extractSymbols(tree, languageId) {
   const mappings = LANGUAGE_SYMBOLS[languageId];
@@ -1555,9 +1570,10 @@ function extractName(node, mapping, languageId) {
       return null;
     }
     case "field_declaration": {
-      const declarator = node.namedChildren.find((c) => c.type === "variable_declarator");
+      const holder = node.namedChildren.find((c) => c.type === "variable_declaration") ?? node;
+      const declarator = holder.namedChildren.find((c) => c.type === "variable_declarator");
       if (declarator) {
-        const n = declarator.childForFieldName("name");
+        const n = declarator.childForFieldName("name") ?? declarator.namedChildren.find((c) => c.type === "identifier");
         return n?.text ?? null;
       }
       return null;
