@@ -243,6 +243,47 @@ enum Status {
   const handlerMethods = handlerSym?.children?.map(c => c.name) ?? [];
   assert(handlerMethods.includes("handle"), "Handler.handle found");
 
+  // C#: a file-scoped namespace holds the types; fields name themselves through a variable_declaration.
+  console.log("\n🔷 C# symbols");
+  assert(mgr.hasGrammar("csharp"), "C# grammar is available");
+  const csCode = `namespace Shop.Orders;
+
+public sealed record OrderLine(string Sku, int Quantity);
+
+public interface IOrderStore
+{
+    Task SaveAsync(Order order);
+}
+
+public sealed class Order
+{
+    private readonly List<OrderLine> _lines = new();
+
+    public Order(string id) => Id = id;
+
+    public string Id { get; }
+
+    public decimal Total(decimal price) => _lines.Sum(l => l.Quantity) * price;
+}
+
+public enum OrderState { Open, Paid }
+`;
+  const csTree = await mgr.parse("/tmp/Order.cs", csCode);
+  assert(csTree !== null, "parsed C# successfully");
+  const csSymbols = extractSymbols(csTree!, "csharp");
+  const csNamespace = csSymbols.find(s => s.name === "Shop.Orders");
+  assert(csNamespace !== undefined, "found file-scoped namespace Shop.Orders");
+  const csNames = (csNamespace?.children ?? []).map(s => s.name);
+  console.log("  Symbols found:", csNames);
+  assert(csNames.includes("OrderLine"), "found record OrderLine");
+  assert(csNames.includes("IOrderStore"), "found interface IOrderStore");
+  assert(csNames.includes("OrderState"), "found enum OrderState");
+  const orderMembers = csNamespace?.children?.find(s => s.name === "Order")?.children?.map(c => c.name) ?? [];
+  assert(orderMembers.includes("_lines"), "Order._lines field found");
+  assert(orderMembers.includes("Order"), "Order constructor found");
+  assert(orderMembers.includes("Id"), "Order.Id property found");
+  assert(orderMembers.includes("Total"), "Order.Total method found");
+
   // ── 7. Node at position & definition finding ──
   console.log("\n📍 Node at position & definition lookup");
   // "greet" starts at line 2 col 17 in tsCode (0-indexed: row=1, col=16)
